@@ -955,7 +955,7 @@ const TemplateFields: React.FC<TemplateFieldsProps> = ({
         {({ addWithInitValue, arrayFields }) => (
           <Form.Section text="个性化卡片">
             <div className="semi-form-field-extra" style={{ fontSize: '14px' }}>
-              投稿时自动挂载互动引导、关联视频、投票弹幕（仅 Web 提交通道生效）
+              投稿时自动挂载互动引导、关联视频、投票弹幕、下期预告、评分弹幕（仅 Web 提交通道生效）
             </div>
             {values.personal_cards_broken ? (
               <div style={{ fontSize: 14, color: 'var(--semi-color-warning)', marginBottom: 12 }}>
@@ -1132,6 +1132,105 @@ const TemplateFields: React.FC<TemplateFieldsProps> = ({
                         )}
                       </ArrayField>
                     </>
+                  ) : null}
+                  {kind === 'preview' ? (
+                    <div style={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <Form.Select
+                        field={`${field}.reserve_type`}
+                        label="预约类型"
+                        optionList={[
+                          { value: 1, label: '普通预约' },
+                          { value: 2, label: '直播预约' },
+                        ]}
+                        style={{ width: 176 }}
+                      />
+                      <InputNumber
+                        field={`${field}.reserve_id`}
+                        label="预约 ID"
+                        min={0}
+                        placeholder="0 表示走活动分支"
+                        style={{ width: 200, marginLeft: 12 }}
+                      />
+                      <InputNumber
+                        field={`${field}.live_stime`}
+                        label="直播开始（秒）"
+                        min={0}
+                        placeholder="仅直播预约需要"
+                        style={{ width: 200, marginLeft: 12 }}
+                      />
+                      <Input
+                        field={`${field}.msg`}
+                        label="文案"
+                        placeholder="选填"
+                        style={{ width: 240, marginLeft: 12 }}
+                      />
+                    </div>
+                  ) : null}
+                  {kind === 'score' ? (
+                    <div style={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <InputNumber
+                        field={`${field}.skin`}
+                        label="评分皮肤"
+                        min={1}
+                        style={{ width: 176 }}
+                      />
+                      <InputNumber
+                        field={`${field}.grade_id`}
+                        label="评分档位 ID"
+                        min={0}
+                        placeholder="0 表示不填"
+                        style={{ width: 200, marginLeft: 12 }}
+                      />
+                      <Input
+                        field={`${field}.msg`}
+                        label="文案"
+                        placeholder="选填"
+                        style={{ width: 240, marginLeft: 12 }}
+                      />
+                    </div>
+                  ) : null}
+                  {kind === 'score_summary' ? (
+                    <div style={{ display: 'flex', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                      <ArrayField field={`${field}.refs`}>
+                        {({ add: addRef, arrayFields: refFields }) => (
+                          <div style={{ width: '100%' }}>
+                            {refFields.map(({ field: refField, key: refKey, remove: removeRef }, ri) => (
+                              <div key={refKey} style={{ display: 'flex', alignItems: 'flex-start' }}>
+                                <Input
+                                  field={refField}
+                                  label={`评分弹幕 idStr ${ri + 1}`}
+                                  placeholder="已有评分弹幕卡片的 idStr"
+                                  style={{ width: 320 }}
+                                  rules={[{ required: true, message: 'idStr 不能为空' }]}
+                                />
+                                <Button
+                                  type="danger"
+                                  theme="borderless"
+                                  icon={<IconMinusCircle />}
+                                  onClick={removeRef}
+                                  disabled={refFields.length <= 1}
+                                  style={{ marginTop: 32 }}
+                                />
+                              </div>
+                            ))}
+                            <Button
+                              icon={<IconPlusCircle />}
+                              theme="light"
+                              onClick={() => addRef()}
+                              style={{ marginTop: 8 }}
+                            >
+                              添加引用
+                            </Button>
+                          </div>
+                        )}
+                      </ArrayField>
+                      <Input
+                        field={`${field}.msg`}
+                        label="文案"
+                        placeholder="选填"
+                        style={{ width: 240, marginLeft: 12 }}
+                      />
+                    </div>
                   ) : null}
                 </div>
               )

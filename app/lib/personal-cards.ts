@@ -1,10 +1,10 @@
 /**
- * 个性化卡片（B 站投稿的互动引导 / 关联视频 / 投票弹幕）。
+ * 个性化卡片（B 站投稿的互动引导 / 关联视频 / 投票弹幕 / 下期预告 / 评分弹幕 / 评分总结）。
  * 模板实体上的 personal_cards 是 JSON 数组字符串（存库为 TEXT），表单里以结构化对象编辑，
  * 提交时序列化、回填时解析，转换逻辑集中在这里供模板表单的组装与回填共用。
  */
 
-export type PersonalCardKind = 'like' | 'related' | 'vote'
+export type PersonalCardKind = 'like' | 'related' | 'vote' | 'preview' | 'score' | 'score_summary'
 
 /** 互动引导（type=5）：msg ≤6 个汉字必填 */
 export interface PersonalCardLike {
@@ -43,13 +43,58 @@ export interface PersonalCardVote {
 	duration: number;
 }
 
-export type PersonalCard = PersonalCardLike | PersonalCardRelated | PersonalCardVote
+/** 下期预告 / 更新预约（type=10） */
+export interface PersonalCardPreview {
+	kind: 'preview';
+	at: number;
+	/** 预约类型：1 普通预约 / 2 直播预约（2 需带 live_stime） */
+	reserve_type: number;
+	/** 预约 id，0 表示走活动分支（提交时不带该字段） */
+	reserve_id: number;
+	/** 直播开始时间（秒），仅 reserve_type=2 时提交；0 表示不填 */
+	live_stime: number;
+	/** 文案，可选 */
+	msg?: string;
+}
+
+/** 评分弹幕（type=11） */
+export interface PersonalCardScore {
+	kind: 'score';
+	at: number;
+	/** 评分皮肤，取值来自 command/panel 的 drop 配置，默认 1 */
+	skin: number;
+	/** 评分档位 id，0 表示不填 */
+	grade_id: number;
+	/** 文案，可选 */
+	msg?: string;
+}
+
+/** 评分总结（type=12）：引用同视频已有评分弹幕的 idStr */
+export interface PersonalCardScoreSummary {
+	kind: 'score_summary';
+	at: number;
+	/** 引用的评分弹幕卡片 idStr 列表 */
+	refs: string[];
+	/** 文案，可选 */
+	msg?: string;
+}
+
+export type PersonalCard =
+	| PersonalCardLike
+	| PersonalCardRelated
+	| PersonalCardVote
+	| PersonalCardPreview
+	| PersonalCardScore
+	| PersonalCardScoreSummary
 
 /** 卡片类型下拉的选项（label 与模板表单文案保持一致） */
 export const CARD_KIND_OPTIONS: { value: PersonalCardKind; label: string }[] = [
 	{ value: 'like', label: '互动引导' },
 	{ value: 'related', label: '关联视频' },
 	{ value: 'vote', label: '投票弹幕' },
+	{ value: 'preview', label: '下期预告' },
+	{ value: 'score', label: '评分弹幕' },
+	{ value: 'score_summary', label: '评分总结' },
 ]
 
 /** 互动引导类型下拉的选项，value 即协议里的 sub_type */
@@ -66,6 +111,10 @@ export function emptyPersonalCard(kind: PersonalCardKind = 'like'): PersonalCard
 	if (kind === 'related') return { kind: 'related', at: 0, oid: '', msg: '' }
 	if (kind === 'vote')
 		return { kind: 'vote', at: 0, question: '', options: ['', ''], duration: 7000 }
+	if (kind === 'preview')
+		return { kind: 'preview', at: 0, reserve_type: 1, reserve_id: 0, live_stime: 0, msg: '' }
+	if (kind === 'score') return { kind: 'score', at: 0, skin: 1, grade_id: 0, msg: '' }
+	if (kind === 'score_summary') return { kind: 'score_summary', at: 0, refs: [''], msg: '' }
 	return { kind: 'like', at: 0, msg: '', sub_type: 0, auto_create: false, count_down: 10 }
 }
 
@@ -115,6 +164,30 @@ function normalizeCard(item: unknown): PersonalCard | null {
 			options,
 			duration: toFiniteNumber(raw.duration, 7000),
 		}
+	}
+	if (raw.kind === 'preview') {
+		const reserveType = toFiniteNumber(raw.reserve_type, 1)
+		return {
+			kind: 'preview',
+			at,
+			reserve_type: reserveType === 2 ? 2 : 1,
+			reserve_id: toFiniteNumber(raw.reserve_id, 0),
+			live_stime: toFiniteNumber(raw.live_stime, 0),
+			msg: toText(raw.msg),
+		}
+	}
+	if (raw.kind === 'score') {
+		return {
+			kind: 'score',
+			at,
+			skin: toFiniteNumber(raw.skin, 1),
+			grade_id: toFiniteNumber(raw.grade_id, 0),
+			msg: toText(raw.msg),
+		}
+	}
+	if (raw.kind === 'score_summary') {
+		const refs = Array.isArray(raw.refs) ? raw.refs.map(ref => toText(ref)) : []
+		return { kind: 'score_summary', at, refs, msg: toText(raw.msg) }
 	}
 	return null
 }
@@ -175,6 +248,44 @@ export function serializePersonalCards(cards: unknown): string {
 				options: Array.isArray(raw.options) ? Array.from(raw.options, option => toText(option)) : [],
 				duration: toFiniteNumber(raw.duration, 7000),
 			})
+		} else if (raw.kind === 'preview') {
+			const reserveType = toFiniteNumber(raw.reserve_type, 1) === 2 ? 2 : 1
+			const card: PersonalCardPreview = {
+				kind: 'preview',
+				at,
+				reserve_type: reserveType,
+				reserve_id: 0,
+				live_stime: 0,
+			}
+			const reserveId = toFiniteNumber(raw.reserve_id, 0)
+			// 0 表示走活动分支，协议上不提交 reserve_id
+			if (reserveId !== 0) card.reserve_id = reserveId
+			const liveStime = toFiniteNumber(raw.live_stime, 0)
+			// live_stime 用秒，仅直播预约（type=2）时提交
+			if (reserveType === 2 && liveStime > 0) card.live_stime = liveStime
+			const msg = toText(raw.msg)
+			if (msg) card.msg = msg
+			output.push(card)
+		} else if (raw.kind === 'score') {
+			const card: PersonalCardScore = {
+				kind: 'score',
+				at,
+				skin: toFiniteNumber(raw.skin, 1),
+				grade_id: 0,
+			}
+			const gradeId = toFiniteNumber(raw.grade_id, 0)
+			if (gradeId !== 0) card.grade_id = gradeId
+			const msg = toText(raw.msg)
+			if (msg) card.msg = msg
+			output.push(card)
+		} else if (raw.kind === 'score_summary') {
+			const refs = Array.isArray(raw.refs)
+				? Array.from(raw.refs, ref => toText(ref)).filter(ref => ref !== '')
+				: []
+			const msg = toText(raw.msg)
+			const card: PersonalCardScoreSummary = { kind: 'score_summary', at, refs }
+			if (msg) card.msg = msg
+			output.push(card)
 		}
 	}
 	return output.length ? JSON.stringify(output) : ''

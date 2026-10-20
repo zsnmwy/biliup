@@ -89,6 +89,50 @@ pub enum PersonalCard {
         #[serde(default = "default_vote_duration")]
         duration: i64,
     },
+    /// 下期预告 / 更新预约（弹幕命令 type=10）
+    Preview {
+        /// 卡片出现时间（秒）
+        at: f64,
+        /// 预约类型：1 普通预约 / 2 直播预约（type=2 时需带 live_stime）
+        reserve_type: i32,
+        /// 预约 id（活动侧下发；没有时传 0 走 activity 分支）
+        #[serde(default)]
+        reserve_id: i64,
+        /// 直播开始时间（秒），仅 reserve_type=2 时提交
+        #[serde(default)]
+        live_stime: Option<i64>,
+        /// 文案，可空
+        #[serde(default)]
+        msg: String,
+    },
+    /// 评分弹幕（弹幕命令 type=11）
+    Score {
+        /// 卡片出现时间（秒）
+        at: f64,
+        /// 评分皮肤，取值来自 command/panel 的 drop 配置
+        #[serde(default = "default_skin")]
+        skin: i32,
+        /// 评分档位 id，可选；取值来自 command/panel 的 drop 配置
+        #[serde(default)]
+        grade_id: Option<i64>,
+        /// 文案，可空
+        #[serde(default)]
+        msg: String,
+    },
+    /// 评分总结（弹幕命令 type=12），引用同视频已有评分弹幕的 idStr
+    ScoreSummary {
+        /// 卡片出现时间（秒）
+        at: f64,
+        /// 引用的评分弹幕卡片 idStr 列表
+        refs: Vec<String>,
+        /// 文案，可空
+        #[serde(default)]
+        msg: String,
+    },
+}
+
+fn default_skin() -> i32 {
+    1
 }
 
 fn default_count_down() -> u32 {
@@ -105,16 +149,22 @@ impl PersonalCard {
         match self {
             PersonalCard::Like { at, .. }
             | PersonalCard::Related { at, .. }
-            | PersonalCard::Vote { at, .. } => *at,
+            | PersonalCard::Vote { at, .. }
+            | PersonalCard::Preview { at, .. }
+            | PersonalCard::Score { at, .. }
+            | PersonalCard::ScoreSummary { at, .. } => *at,
         }
     }
 
-    /// 弹幕命令的卡片类型：5 互动引导 / 2 关联视频 / 9 投票
+    /// 弹幕命令的卡片类型：5 互动引导 / 2 关联视频 / 9 投票 / 10 下期预告 / 11 评分 / 12 评分总结
     pub fn card_type(&self) -> u8 {
         match self {
             PersonalCard::Like { .. } => 5,
             PersonalCard::Related { .. } => 2,
             PersonalCard::Vote { .. } => 9,
+            PersonalCard::Preview { .. } => 10,
+            PersonalCard::Score { .. } => 11,
+            PersonalCard::ScoreSummary { .. } => 12,
         }
     }
 
@@ -182,6 +232,63 @@ impl PersonalCard {
                 }
                 value
             }
+            PersonalCard::Preview {
+                reserve_type,
+                reserve_id,
+                live_stime,
+                msg,
+                ..
+            } => {
+                // 有 reserve_id 走预约分支，否则 reserve_type 即 activity.id（编辑器 36294-36299）
+                let mut value = if *reserve_id != 0 {
+                    json!({
+                        "reserve_type": reserve_type,
+                        "reserve_id": reserve_id,
+                        "msg": msg,
+                        "duration": LIKE_DURATION_MS,
+                        "posX_2": 50,
+                        "posY_2": 65,
+                    })
+                } else {
+                    json!({
+                        "reserve_type": reserve_type,
+                        "msg": msg,
+                        "duration": LIKE_DURATION_MS,
+                        "posX_2": 50,
+                        "posY_2": 65,
+                    })
+                };
+                // live_stime 用秒，仅预约类型 2（直播）时提交
+                if *reserve_type == 2
+                    && let Some(stime) = live_stime
+                {
+                    value["live_stime"] = json!(stime);
+                }
+                value
+            }
+            PersonalCard::Score {
+                skin,
+                grade_id,
+                msg,
+                ..
+            } => {
+                let mut value = json!({
+                    "skin": skin,
+                    "msg": msg,
+                    "duration": LIKE_DURATION_MS,
+                    "posX_2": 50,
+                    "posY_2": 65,
+                });
+                if let Some(grade) = grade_id {
+                    value["grade_id"] = json!(grade);
+                }
+                value
+            }
+            // 评分总结不在通用序列化白名单里，只有 dmids_str 与 msg
+            PersonalCard::ScoreSummary { refs, msg, .. } => json!({
+                "dmids_str": refs,
+                "msg": msg,
+            }),
         };
         serde_json::to_string(&value).map_err(|e| Kind::Custom(e.to_string()))
     }
@@ -456,6 +563,92 @@ mod tests {
         assert_eq!(data["optionB"], "2");
         assert_eq!(data["optionC"], "3");
         assert_eq!(data["optionD"], "4");
+    }
+
+    /// 下期预告：带 reserve_id 时走预约分支；无 reserve_id 时不带该键；
+    /// 仅预约类型 2（直播）带 live_stime（秒）
+    #[test]
+    fn preview_data_json_matches_web_protocol() {
+        let with_id = PersonalCard::Preview {
+            at: 50.0,
+            reserve_type: 1,
+            reserve_id: 42,
+            live_stime: None,
+            msg: "下期更精彩".into(),
+        };
+        let data: serde_json::Value = serde_json::from_str(&with_id.data_json().unwrap()).unwrap();
+        assert_eq!(
+            data,
+            serde_json::json!({
+                "reserve_type": 1,
+                "reserve_id": 42,
+                "msg": "下期更精彩",
+                "duration": 5000,
+                "posX_2": 50,
+                "posY_2": 65
+            })
+        );
+        assert_eq!(with_id.card_type(), 10);
+
+        let live = PersonalCard::Preview {
+            at: 1.0,
+            reserve_type: 2,
+            reserve_id: 0,
+            live_stime: Some(1793725293),
+            msg: String::new(),
+        };
+        let data: serde_json::Value = serde_json::from_str(&live.data_json().unwrap()).unwrap();
+        assert!(data.get("reserve_id").is_none(), "{data}");
+        assert_eq!(data["live_stime"], 1793725293);
+    }
+
+    /// 评分弹幕：skin 恒带，grade_id 仅在设置时出现
+    #[test]
+    fn score_data_json_matches_web_protocol() {
+        let plain = PersonalCard::Score {
+            at: 120.0,
+            skin: 1,
+            grade_id: None,
+            msg: "打个分吧".into(),
+        };
+        let data: serde_json::Value = serde_json::from_str(&plain.data_json().unwrap()).unwrap();
+        assert_eq!(
+            data,
+            serde_json::json!({
+                "skin": 1,
+                "msg": "打个分吧",
+                "duration": 5000,
+                "posX_2": 50,
+                "posY_2": 65
+            })
+        );
+        assert_eq!(plain.card_type(), 11);
+
+        let graded = PersonalCard::Score {
+            at: 1.0,
+            skin: 2,
+            grade_id: Some(3),
+            msg: String::new(),
+        };
+        let data: serde_json::Value = serde_json::from_str(&graded.data_json().unwrap()).unwrap();
+        assert_eq!(data["skin"], 2);
+        assert_eq!(data["grade_id"], 3);
+    }
+
+    /// 评分总结不在通用序列化白名单里，data 只有 dmids_str 与 msg
+    #[test]
+    fn score_summary_data_json_only_has_dmids_and_msg() {
+        let summary = PersonalCard::ScoreSummary {
+            at: 200.0,
+            refs: vec!["111".into(), "222".into()],
+            msg: "评分总结".into(),
+        };
+        let data: serde_json::Value = serde_json::from_str(&summary.data_json().unwrap()).unwrap();
+        assert_eq!(
+            data,
+            serde_json::json!({"dmids_str": ["111", "222"], "msg": "评分总结"})
+        );
+        assert_eq!(summary.card_type(), 12);
     }
 
     /// 配置可省略的字段按默认值参与 data JSON：sub_type=0、auto_create=false、
