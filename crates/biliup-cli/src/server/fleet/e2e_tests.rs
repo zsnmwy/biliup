@@ -1032,7 +1032,9 @@ async fn alerts_follow_node_events_and_connectivity() {
             let merged = alerts
                 .iter()
                 .any(|alert| alert.kind == AlertKind::RecordingError && alert.count == 2);
-            let failed = alerts.iter().any(|alert| alert.kind == AlertKind::UploadFailed);
+            let failed = alerts
+                .iter()
+                .any(|alert| alert.kind == AlertKind::UploadFailed);
             merged && failed
         }
     })
@@ -1153,7 +1155,10 @@ async fn alerts_follow_node_events_and_connectivity() {
     agent.shutdown().await;
     wait_for_node(&controller, id, false, Duration::from_secs(10)).await;
     controller.evaluate_alerts_at(now_ms()).await;
-    assert!(open_alert(AlertKind::NodeOffline).await.is_none(), "60 秒之内不算离线");
+    assert!(
+        open_alert(AlertKind::NodeOffline).await.is_none(),
+        "60 秒之内不算离线"
+    );
     let later = now_ms() + OFFLINE_ALERT_AFTER_MS + 1_000;
     controller.evaluate_alerts_at(later).await;
     let offline = controller
@@ -2311,11 +2316,12 @@ async fn a_paired_standby_edits_rooms_and_the_pair_converges() {
             let pool = c.pool.clone();
             let expected = expected.to_string_lossy().into_owned();
             async move {
-                let registered: Vec<String> =
-                    sqlx::query_scalar("SELECT value FROM configuration WHERE key = 'bilibili-cookies'")
-                        .fetch_all(&pool)
-                        .await
-                        .unwrap();
+                let registered: Vec<String> = sqlx::query_scalar(
+                    "SELECT value FROM configuration WHERE key = 'bilibili-cookies'",
+                )
+                .fetch_all(&pool)
+                .await
+                .unwrap();
                 registered == [expected]
             }
         },

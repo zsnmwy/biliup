@@ -599,11 +599,11 @@ impl Session {
         recorder.filename_prefix = upload_config.title.clone();
         match self {
             Session::Real(context) => {
-                let studio =
+                let mut studio =
                     build_studio(upload_config, &context.bilibili, videos, &recorder).await?;
                 let submit_api = ctx.config().submit_api.clone();
-                let ret =
-                    submit_to_bilibili(&context.bilibili, &studio, submit_api.as_deref()).await?;
+                let ret = submit_to_bilibili(&context.bilibili, &mut studio, submit_api.as_deref())
+                    .await?;
                 Ok(archive_id(&ret))
             }
             #[cfg(test)]

@@ -1,6 +1,9 @@
 use crate::ReqwestClientBuilderExt;
 use crate::error::{Kind, Result};
+use crate::uploader::chapter::Chapter;
 use crate::uploader::credential::LoginInfo;
+use crate::uploader::personal_card::PersonalCard;
+use crate::uploader::subtitle::SubtitleFile;
 use serde::ser::Error;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -13,7 +16,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use tracing::{info, warn};
 
-#[derive(Serialize, Deserialize, Debug, Builder)]
+#[derive(Serialize, Deserialize, Debug, Builder, Clone)]
 #[cfg_attr(feature = "cli", derive(clap::Args))]
 pub struct Studio {
     /// 是否转载, 1-自制 2-转载
@@ -149,6 +152,57 @@ pub struct Studio {
     #[cfg_attr(feature = "cli", clap(long, value_parser = parse_extra_fields))]
     #[serde(flatten)]
     pub extra_fields: Option<HashMap<String, Value>>,
+
+    /// 个性化卡片（互动引导/关联视频/投票），投稿前逐张挂到分P上；
+    /// 不进 add/v3 请求体，走独立的 dm/command 接口，仅 web 通道支持
+    #[cfg_attr(feature = "cli", clap(skip))]
+    #[serde(skip)]
+    #[builder(default)]
+    pub personal_cards: Vec<PersonalCard>,
+
+    /// 商业推广（网页端「其他」tab）。随 add/v3 提交，配置时 adorder_type 置 9；
+    /// 与花火订单、充电专属、仅自己可见互斥，仅 web 投稿通道支持
+    #[cfg_attr(feature = "cli", clap(skip))]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub porder: Option<Porder>,
+
+    /// 花火订单 id（投稿后再添加商品的带货形态也用它）；有值时与 adorder_type 一起提交
+    #[cfg_attr(feature = "cli", clap(skip))]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adorder_id: Option<u64>,
+
+    /// 花火订单类型：0 商单/1 任务/2 带货/3 广告合伙人/4 招募/5 CPVV；商业推广恒为 9
+    #[cfg_attr(feature = "cli", clap(skip))]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adorder_type: Option<i32>,
+
+    /// 联合投稿参与者（元素只有署名头衔与 mid 两个字段）
+    #[cfg_attr(feature = "cli", clap(skip))]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub staffs: Option<Vec<Staff>>,
+
+    /// 稿件带章节时置 true，随 add/v3 告知服务端（章节正文投稿前走 pre/chapter/submit）
+    #[cfg_attr(feature = "cli", clap(skip))]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_chapter: Option<bool>,
+
+    /// 章节配置（投稿前 POST pre/chapter/submit，不进 add/v3 请求体），仅 web 投稿通道支持
+    #[cfg_attr(feature = "cli", clap(skip))]
+    #[serde(skip)]
+    #[builder(default)]
+    pub chapters: Vec<Chapter>,
+
+    /// 字幕文件（投稿前 upload/web/image + draft/preSave，不进 add/v3 请求体），
+    /// 仅 web 投稿通道支持；字幕非必需，失败告警跳过
+    #[cfg_attr(feature = "cli", clap(skip))]
+    #[serde(skip)]
+    #[builder(default)]
+    pub subtitle_files: Vec<SubtitleFile>,
+
+    /// 投稿成功后把稿件加入的合集小节 id（episodes/add），失败告警不阻断投稿
+    #[cfg_attr(feature = "cli", clap(skip))]
+    #[serde(skip)]
+    pub section_id: Option<u64>,
 }
 
 #[cfg(feature = "cli")]
@@ -316,10 +370,47 @@ impl Archive {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Default)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct Subtitle {
     open: i8,
     lan: String,
+}
+
+/// 商业推广（网页端「其他」tab）。序列化形态即 add/v3 请求体里的 `porder` 对象，
+/// 字段名与网页端一字不差。行业 id / 推广形式 id 必须取自登录后
+/// `GET /x/vupre/web/archive/pre` 响应的 `industry_list` / `showtype_list`。
+#[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
+pub struct Porder {
+    /// 流程 id，网页端恒为 1；配置里可省略，解析后统一补成 1
+    #[serde(default)]
+    pub flow_id: u8,
+    /// 行业 id（pre 响应 industry_list）
+    pub industry_id: u32,
+    /// 是否官方：0 否 / 1 是
+    #[serde(default)]
+    pub official: u8,
+    /// 品牌名（industry_id=1 手游时来自认证游戏列表）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand_name: Option<String>,
+    /// 品牌 id（搜索命中的已有品牌或认证游戏的 game_base_id）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand_id: Option<u64>,
+    /// 品牌来源：1 搜索命中的已有品牌 / 2 自定义名称；industry_id=1 时不带
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brand_source: Option<u8>,
+    /// 推广形式 id，多个用英文逗号拼接（pre 响应 showtype_list）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub show_type: Option<String>,
+}
+
+/// 联合投稿参与者。add/v3 请求体里每个元素只有署名头衔与用户 mid 两个字段，
+/// 搜索接口返回的其它字段（用户名、头像等）不提交。
+#[derive(PartialEq, Eq, Serialize, Deserialize, Debug, Clone)]
+pub struct Staff {
+    /// 参与者在本稿件的署名头衔
+    pub title: String,
+    /// 参与 B 站用户的 mid
+    pub mid: u64,
 }
 
 #[derive(PartialEq, Deserialize, Serialize, Debug, Clone)]
@@ -335,6 +426,15 @@ pub struct Video {
     pub title: Option<String>,
     pub filename: String,
     pub desc: String,
+    /// 分P的 cid，即 preupload 返回的 biz_id；挂个性化卡片时要用
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cid: Option<u64>,
+    /// 该分P挂了个性化卡片时置 true，随 add/v3 告知服务端
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pre_command: Option<bool>,
+    /// 投稿页已传过字幕文件时置 true，随 add/v3 告知服务端
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pre_subtitle: Option<bool>,
 }
 
 impl Video {
@@ -343,6 +443,9 @@ impl Video {
             title: None,
             filename: filename.into(),
             desc: "".into(),
+            cid: None,
+            pre_command: None,
+            pre_subtitle: None,
         }
     }
 
@@ -820,6 +923,31 @@ impl BiliBili {
             .await?)
     }
 
+    /// 联合投稿参与者搜索（响应里的 `kw` 参数名是 `kw`）。
+    /// 返回完整响应体，调用方自行取 `data.users`。
+    pub async fn staff_search(&self, kw: &str) -> Result<Value> {
+        Ok(self
+            .client
+            .get("https://member.bilibili.com/x/web/staff/user/search")
+            .query(&[("kw", kw)])
+            .send()
+            .await?
+            .json()
+            .await?)
+    }
+
+    /// 商业推广品牌搜索（参数名是 `brand_name`）。返回完整响应体。
+    pub async fn ad_brand_list(&self, brand_name: &str) -> Result<Value> {
+        Ok(self
+            .client
+            .get("https://member.bilibili.com/x/web/ad/brand/list")
+            .query(&[("brand_name", brand_name)])
+            .send()
+            .await?
+            .json()
+            .await?)
+    }
+
     pub async fn recommend_tag(&self, subtype_id: u16, title: &str, key: &str) -> Result<Value> {
         let result: ResponseData = self
             .client
@@ -1171,6 +1299,136 @@ mod vid_and_cookie_tests {
             assert!(header.contains(expected), "{expected} missing in {header}");
         }
         assert!(!header.contains("broken"), "{header}");
+    }
+}
+
+#[cfg(test)]
+mod video_cid_tests {
+    use super::Video;
+    use serde_json::json;
+
+    /// 未设置的 cid / pre_command / pre_subtitle 不得出现在投稿请求体里，
+    /// 否则会改动旧链路的请求形状
+    #[test]
+    fn video_json_omits_cid_and_pre_command_when_unset() {
+        let video = Video::new("uploaded-key");
+        let value = serde_json::to_value(&video).unwrap();
+        assert!(value.get("cid").is_none(), "{value}");
+        assert!(value.get("pre_command").is_none(), "{value}");
+        assert!(value.get("pre_subtitle").is_none(), "{value}");
+
+        let mut video = Video::new("uploaded-key");
+        video.cid = Some(42);
+        video.pre_command = Some(true);
+        video.pre_subtitle = Some(true);
+        let value = serde_json::to_value(&video).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "title": null,
+                "filename": "uploaded-key",
+                "desc": "",
+                "cid": 42,
+                "pre_command": true,
+                "pre_subtitle": true
+            })
+        );
+    }
+}
+
+#[cfg(test)]
+mod studio_publish_extras_tests {
+    use super::{Porder, Staff, Studio};
+    use serde_json::json;
+
+    fn base_studio_json() -> serde_json::Value {
+        serde_json::json!({
+            "copyright": 1,
+            "source": "",
+            "tid": 95,
+            "cover": "",
+            "title": "t",
+            "desc": "",
+            "dynamic": "",
+            "tag": "",
+            "dolby": 0,
+            "lossless_music": 0,
+            "no_reprint": 0,
+            "charging_pay": 0,
+            "up_selection_reply": false,
+            "up_close_reply": false,
+            "up_close_danmu": false
+        })
+    }
+
+    /// porder / adorder / staffs 的序列化形态必须与网页端一字不差：
+    /// flow_id 恒 1，Option 字段未设置时整个键不出现
+    #[test]
+    fn publish_extras_serialize_with_web_field_names() {
+        let mut studio: Studio = serde_json::from_value(base_studio_json()).unwrap();
+        studio.porder = Some(Porder {
+            flow_id: 1,
+            industry_id: 8,
+            official: 0,
+            brand_name: Some("某品牌".into()),
+            brand_id: Some(114514),
+            brand_source: Some(2),
+            show_type: Some("11,12".into()),
+        });
+        studio.adorder_type = Some(9);
+        studio.staffs = Some(vec![Staff {
+            title: "剪辑".into(),
+            mid: 42,
+        }]);
+        let value = serde_json::to_value(&studio).unwrap();
+        assert_eq!(
+            value["porder"],
+            json!({
+                "flow_id": 1,
+                "industry_id": 8,
+                "official": 0,
+                "brand_name": "某品牌",
+                "brand_id": 114514,
+                "brand_source": 2,
+                "show_type": "11,12"
+            })
+        );
+        assert_eq!(value["adorder_type"], 9);
+        assert_eq!(
+            value["staffs"],
+            json!([{"title": "剪辑", "mid": 42}]),
+            "staffs 元素只有 title 与 mid 两个字段"
+        );
+        assert!(value.get("adorder_id").is_none());
+        assert!(value.get("has_chapter").is_none());
+    }
+
+    /// 未配置任何商业/花火/联合投稿字段时，请求体里不能出现这些键
+    #[test]
+    fn publish_extras_are_absent_when_unset() {
+        let studio: Studio = serde_json::from_value(base_studio_json()).unwrap();
+        let value = serde_json::to_value(&studio).unwrap();
+        for key in [
+            "porder",
+            "adorder_id",
+            "adorder_type",
+            "staffs",
+            "has_chapter",
+        ] {
+            assert!(value.get(key).is_none(), "{key} must be absent: {value}");
+        }
+    }
+
+    /// 花火带货（投稿后再添加商品形态）只有 id 与类型，不带商品列表也能成稿
+    #[test]
+    fn adorder_serializes_both_fields_together() {
+        let mut raw = base_studio_json();
+        raw["adorder_id"] = json!(123456);
+        raw["adorder_type"] = json!(2);
+        let studio: Studio = serde_json::from_value(raw).unwrap();
+        let value = serde_json::to_value(&studio).unwrap();
+        assert_eq!(value["adorder_id"], 123456);
+        assert_eq!(value["adorder_type"], 2);
     }
 }
 

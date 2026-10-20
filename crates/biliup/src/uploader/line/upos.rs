@@ -36,6 +36,13 @@ pub struct Bucket {
     upos_uri: String,
 }
 
+impl Bucket {
+    /// preupload 返回的 biz_id，投稿后即该分P的 cid（挂个性化卡片时要用）
+    pub fn biz_id(&self) -> u64 {
+        self.biz_id as u64
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Protocol<'a> {
@@ -95,6 +102,11 @@ impl Upos {
             url,
             upload_id,
         })
+    }
+
+    /// preupload 返回的 biz_id，投稿后即该分P的 cid
+    pub(crate) fn biz_id(&self) -> u64 {
+        self.bucket.biz_id()
     }
 
     pub(crate) async fn upload_stream<'a, F, B>(
@@ -251,7 +263,10 @@ impl Upos {
         )
         .await?;
         debug_assert_eq!(res["OK"], 1);
-        uploaded_video(&self.bucket.upos_uri)
+        let mut video = uploaded_video(&self.bucket.upos_uri)?;
+        // preupload 的 biz_id 即该分P的 cid
+        video.cid = Some(self.bucket.biz_id());
+        Ok(video)
     }
 }
 
@@ -266,6 +281,9 @@ fn uploaded_video(upos_uri: &str) -> Result<Video> {
         title: None,
         filename: filename.to_string(),
         desc: "".into(),
+        cid: None,
+        pre_command: None,
+        pre_subtitle: None,
     })
 }
 

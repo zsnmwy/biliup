@@ -5,11 +5,12 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use biliup::uploader::bilibili::ArchivePage;
+use biliup::uploader::bilibili::{ArchivePage, BiliBili};
 use biliup::uploader::credential::login_by_cookies;
 use error_stack::{Report, ResultExt};
 use ormlite::Model;
 use serde::Deserialize;
+use serde_json::json;
 use std::collections::HashMap;
 
 /// B站投稿预处理端点
@@ -41,6 +42,107 @@ pub async fn archive_pre_endpoint(
     Err(report_to_response(Report::from(AppError::Custom(
         "无可用 cookie 文件".to_string(),
     ))))
+}
+
+/// 与 `archive_pre_endpoint` 相同的取凭据方式：依次尝试已登记的 B 站 cookie，
+/// 返回第一个能登录的客户端。
+async fn first_available_bilibili(pool: &ConnectionPool) -> Result<BiliBili, Response> {
+    let configurations = Configuration::select()
+        .where_("key = 'bilibili-cookies'")
+        .fetch_all(pool)
+        .await
+        .change_context(AppError::Unknown)
+        .map_err(report_to_response)?;
+    for cookies in configurations {
+        if let Ok(bili) = login_by_cookies(cookies.value, None).await {
+            return Ok(bili);
+        }
+    }
+    Err(report_to_response(Report::from(AppError::Custom(
+        "无可用 cookie 文件".to_string(),
+    ))))
+}
+
+/// 合集列表端点：复用 season.rs 的列表接口，折叠成 Web UI 需要的形状
+/// `[{"id":<seasonId>,"title":"..","sections":[{"id":<sectionId>,"title":".."}]}]`
+pub async fn seasons_endpoint(
+    State(pool): State<ConnectionPool>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let bili = first_available_bilibili(&pool).await?;
+    // 最多翻 10 页（每页 30 条），足够 Web UI 的下拉选择
+    let mut seasons = Vec::new();
+    for pn in 1..=10_u32 {
+        let page = bili
+            .seasons(pn, 30)
+            .await
+            .change_context(AppError::Unknown)
+            .map_err(report_to_response)?;
+        let total = page.total;
+        for entry in &page.seasons {
+            seasons.push(json!({
+                "id": entry.season.id,
+                "title": entry.season.title,
+                "sections": entry
+                    .sections
+                    .sections
+                    .iter()
+                    .map(|section| json!({"id": section.id, "title": section.title}))
+                    .collect::<Vec<_>>(),
+            }));
+        }
+        let page_full = page.seasons.len() as u64 >= 30;
+        let caught_up = total.is_some_and(|total| seasons.len() as u64 >= total);
+        if !page_full || caught_up {
+            break;
+        }
+    }
+    Ok(Json(json!(seasons)))
+}
+
+/// 联合投稿参与者搜索端点：透传 `member.bilibili.com/x/web/staff/user/search?kw=` 响应
+pub async fn staff_search_endpoint(
+    Query(query): Query<StaffSearchQuery>,
+    State(pool): State<ConnectionPool>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let kw = query.kw.trim();
+    if kw.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "kw 不能为空").into_response());
+    }
+    let bili = first_available_bilibili(&pool).await?;
+    Ok(Json(
+        bili.staff_search(kw)
+            .await
+            .change_context(AppError::Unknown)
+            .map_err(report_to_response)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StaffSearchQuery {
+    kw: String,
+}
+
+/// 商业推广品牌搜索端点：透传 `member.bilibili.com/x/web/ad/brand/list?brand_name=` 响应
+pub async fn ad_brand_list_endpoint(
+    Query(query): Query<BrandListQuery>,
+    State(pool): State<ConnectionPool>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let brand_name = query.brand_name.trim();
+    if brand_name.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "brand_name 不能为空").into_response());
+    }
+    let bili = first_available_bilibili(&pool).await?;
+    Ok(Json(
+        bili.ad_brand_list(brand_name)
+            .await
+            .change_context(AppError::Unknown)
+            .map_err(report_to_response)?,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BrandListQuery {
+    brand_name: String,
 }
 
 async fn get_registered_cookie(pool: &ConnectionPool, id: i64) -> Result<Configuration, Response> {

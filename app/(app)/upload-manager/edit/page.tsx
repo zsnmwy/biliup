@@ -15,6 +15,13 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { FormApi } from '@douyinfe/semi-ui/lib/es/form'
 import useSWR from 'swr'
 import { useTypeTree } from '@/app/lib/use-streamers'
+import { parsePersonalCards, serializePersonalCards } from '@/app/lib/personal-cards'
+import {
+  enhancementIssues,
+  ENHANCEMENT_BLOCK_FIELD,
+  parseEnhancementFields,
+  serializeEnhancementFields,
+} from '@/app/lib/upload-enhancements'
 import { FormPage, usePageLabelPosition } from '@/app/ui/shell'
 
 const BACK = { href: '/upload-manager', label: '投稿管理' }
@@ -70,8 +77,14 @@ const Edit = () => {
   // 其余开关是 0 / 1。只认 1 时打开过的开关回显成关，一保存就被写成 0
   const flagOn = (flag: unknown) => flag === 1 || flag === true
 
+  // personal_cards 实体上是 JSON 字符串，表单里以结构化数组编辑；解析失败按空数组处理并提示，不 crash
+  const personalCards = parsePersonalCards(data.personal_cards)
+  // 五项投稿增强（合集/商业推广/联合投稿/章节/字幕）同理：JSON 字符串宽容解析并带 broken 标志回填
+  const enhancements = parseEnhancementFields(data)
+
   let uploadStreamers = {
     ...data,
+    ...enhancements,
     tid: [
       typeTree.find((tt: BiliType) => {
         return tt.children.some((ct) => ct.id === data?.tid)
@@ -86,10 +99,29 @@ const Edit = () => {
     no_reprint: data.no_reprint === 1,
     is_only_self: data.is_only_self === 1,
     isDtime: data.dtime ? true : false,
+    personal_cards: personalCards.cards,
+    personal_cards_broken: personalCards.broken || undefined,
   }
 
   const handleSave = async () => {
     const values = await api.current?.validate()
+    // 商业推广互斥、章节规则、联合投稿职位等在 UI 层先拦一次；有问题就不发请求并滚到对应区块
+    const issues = values ? enhancementIssues(values) : []
+    if (issues.length) {
+      Notification.error({
+        title: '投稿配置有误，未保存',
+        content: (
+          <div>
+            {issues.map((issue, index) => (
+              <div key={index}>{issue.message}</div>
+            ))}
+          </div>
+        ),
+        position: 'top',
+      })
+      api.current?.scrollToField(ENHANCEMENT_BLOCK_FIELD[issues[0].block])
+      return
+    }
     try {
       const studioEntity: StudioEntity = {
         template_name: values?.template_name,
@@ -117,6 +149,10 @@ const Edit = () => {
         credits: values?.credits ?? null,
         uploader: values?.uploader ?? null,
         extra_fields: values?.extra_fields ?? '',
+        // 表单里是结构化卡片数组，这里序列化成实体上的 JSON 字符串；没有卡片时存空串
+        personal_cards: serializePersonalCards(values?.personal_cards),
+        // 五项投稿增强（加入合集/商业推广/联合投稿/章节/字幕）：结构化表单值序列化成实体字段
+        ...serializeEnhancementFields(values),
       }
       const result = await trigger(studioEntity)
       await mutate(result)

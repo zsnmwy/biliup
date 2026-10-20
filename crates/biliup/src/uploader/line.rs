@@ -52,6 +52,11 @@ pub struct Parcel {
 }
 
 impl Parcel {
+    /// preupload 返回的 biz_id，投稿后即该分P的 cid
+    pub fn biz_id(&self) -> Option<u64> {
+        self.line.biz_id()
+    }
+
     pub async fn upload<F, S, B>(
         self,
         client: StatelessClient,
@@ -225,6 +230,14 @@ enum Bucket {
     Upos(upos::Bucket),
 }
 
+impl Bucket {
+    fn biz_id(&self) -> Option<u64> {
+        match self {
+            Bucket::Upos(bucket) => Some(bucket.biz_id()),
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Line {
     os: Uploader,
@@ -253,6 +266,11 @@ impl UploadedStream {
         self.declared_size
     }
 
+    /// preupload 返回的 biz_id，投稿后即该分P的 cid
+    pub fn biz_id(&self) -> Option<u64> {
+        Some(self.upos.biz_id())
+    }
+
     pub fn uploaded_size(&self) -> u64 {
         self.uploaded_size
     }
@@ -271,6 +289,11 @@ impl UploadedStream {
 }
 
 impl StreamParcel {
+    /// preupload 返回的 biz_id，投稿后即该分P的 cid
+    pub fn biz_id(&self) -> Option<u64> {
+        self.line.biz_id()
+    }
+
     pub fn chunk_size(&self) -> usize {
         match &self.line {
             Bucket::Upos(bucket) => bucket.chunk_size,

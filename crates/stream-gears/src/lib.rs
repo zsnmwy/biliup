@@ -10,6 +10,7 @@ use biliup::credential::Credential;
 use biliup::downloader::util::{CallbackFn, LifecycleFile, Segmentable};
 use biliup::downloader::{hls, httpflv};
 use biliup::uploader::credential::save_login_info;
+use biliup::uploader::personal_card::parse_personal_cards;
 use pyo3::types::PyMapping;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::collections::HashMap;
@@ -440,9 +441,9 @@ fn login_by_web_qrcode(
 
 #[allow(clippy::too_many_arguments)]
 #[pyfunction]
-#[pyo3(signature = (video_path, cookie_file, title, tid=171, tid_v2=None, tag="".to_string(), copyright=2, source="".to_string(), desc="".to_string(), dynamic="".to_string(), cover="".to_string(), dolby=0, lossless_music=0, no_reprint=0, charging_pay=0, up_close_reply=false, up_selection_reply=false, up_close_danmu=false, limit=3, desc_v2=vec![], dtime=None, line=None, extra_fields="".to_string(), submit=None, proxy=None))]
+#[pyo3(signature = (video_path, cookie_file, title, tid=171, tid_v2=None, tag="".to_string(), copyright=2, source="".to_string(), desc="".to_string(), dynamic="".to_string(), cover="".to_string(), dolby=0, lossless_music=0, no_reprint=0, charging_pay=0, up_close_reply=false, up_selection_reply=false, up_close_danmu=false, limit=3, desc_v2=vec![], dtime=None, line=None, extra_fields="".to_string(), submit=None, proxy=None, personal_cards=None))]
 #[pyo3(
-    text_signature = "(video_path, cookie_file, title, tid=171, tid_v2=None, tag='', copyright=2, source='', desc='', dynamic='', cover='', dolby=0, lossless_music=0, no_reprint=0, charging_pay=0, up_close_reply=False, up_selection_reply=False, up_close_danmu=False, limit=3, desc_v2=[], dtime=None, line=None, extra_fields='', submit=None, proxy=None)"
+    text_signature = "(video_path, cookie_file, title, tid=171, tid_v2=None, tag='', copyright=2, source='', desc='', dynamic='', cover='', dolby=0, lossless_music=0, no_reprint=0, charging_pay=0, up_close_reply=False, up_selection_reply=False, up_close_danmu=False, limit=3, desc_v2=[], dtime=None, line=None, extra_fields='', submit=None, proxy=None, personal_cards=None)"
 )]
 fn upload(
     py: Python<'_>,
@@ -471,10 +472,13 @@ fn upload(
     extra_fields: Option<String>,
     submit: Option<String>,
     proxy: Option<String>,
+    personal_cards: Option<String>,
 ) -> PyResult<()> {
     let extra_fields = parse_extra_fields(extra_fields.as_deref()).map_err(|e| {
         PyValueError::new_err(format!("extra_fields is not a valid JSON object: {e}"))
     })?;
+    let personal_cards = parse_personal_cards(personal_cards.as_deref())
+        .map_err(|e| PyValueError::new_err(format!("personal_cards: {e}")))?;
     py.detach(|| {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -526,6 +530,7 @@ fn upload(
                 .up_close_danmu(up_close_danmu)
                 .desc_v2_credit(desc_v2)
                 .extra_fields(extra_fields)
+                .personal_cards(personal_cards)
                 .build();
 
             // let submit = match submit {

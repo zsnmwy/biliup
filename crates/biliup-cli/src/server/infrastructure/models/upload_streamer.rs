@@ -56,6 +56,24 @@ pub struct UploadStreamer {
     pub up_close_danmu: Option<bool>,
     /// 额外字段
     pub extra_fields: Option<String>,
+    /// 个性化卡片配置（personal_cards JSON 数组字符串），仅 web 投稿通道生效
+    pub personal_cards: Option<String>,
+    /// 商业推广配置（porder JSON 对象字符串，空/NULL=未启用），仅 web 投稿通道生效
+    pub porder: Option<String>,
+    /// 花火订单 id
+    pub adorder_id: Option<i64>,
+    /// 花火订单类型（0 商单/1 任务/2 带货/3 广告合伙人/4 招募/5 CPVV；商业推广恒 9）
+    pub adorder_type: Option<i32>,
+    /// 联合投稿参与者（staffs JSON 数组字符串）
+    pub staffs: Option<String>,
+    /// 章节配置（chapters JSON 数组字符串）
+    pub chapters: Option<String>,
+    /// 中文字幕文件路径（.srt，同 cover_path 模式）
+    pub subtitle_zh: Option<String>,
+    /// 英文字幕文件路径（.srt，同 cover_path 模式）
+    pub subtitle_en: Option<String>,
+    /// 投稿完成后加入的合集小节 id
+    pub section_id: Option<i64>,
 }
 
 /// 插入上传配置的数据结构
@@ -88,6 +106,24 @@ pub struct InsertUploadStreamer {
     pub up_close_danmu: Option<u8>,
     pub extra_fields: Option<String>,
     pub is_only_self: Option<u8>,
+    /// 个性化卡片配置（personal_cards JSON 数组字符串）
+    pub personal_cards: Option<String>,
+    /// 商业推广配置（porder JSON 对象字符串，空/NULL=未启用）
+    pub porder: Option<String>,
+    /// 花火订单 id
+    pub adorder_id: Option<i64>,
+    /// 花火订单类型（0 商单/1 任务/2 带货/3 广告合伙人/4 招募/5 CPVV；商业推广恒 9）
+    pub adorder_type: Option<i32>,
+    /// 联合投稿参与者（staffs JSON 数组字符串）
+    pub staffs: Option<String>,
+    /// 章节配置（chapters JSON 数组字符串）
+    pub chapters: Option<String>,
+    /// 中文字幕文件路径（.srt）
+    pub subtitle_zh: Option<String>,
+    /// 英文字幕文件路径（.srt）
+    pub subtitle_en: Option<String>,
+    /// 投稿完成后加入的合集小节 id
+    pub section_id: Option<i64>,
 }
 
 pub(crate) fn is_noop_uploader(uploader: Option<&str>) -> bool {

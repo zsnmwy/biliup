@@ -193,6 +193,9 @@ impl Cos {
             title: None,
             filename: truncated_filename,
             desc: "".into(),
+            cid: None,
+            pre_command: None,
+            pre_subtitle: None,
         })
     }
 }

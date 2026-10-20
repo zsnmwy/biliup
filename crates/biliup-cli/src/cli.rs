@@ -69,6 +69,47 @@ pub enum Commands {
         #[arg(long, default_value = "3")]
         limit: usize,
 
+        /// 个性化卡片配置（JSON 数组），投稿前挂到第一个分P；仅 --submit web 时生效。
+        /// 例：'[{"kind":"like","at":30,"msg":"求三连","sub_type":1,"auto_create":false,"count_down":10}]'
+        #[arg(long, value_name = "JSON")]
+        personal_cards: Option<String>,
+
+        /// 商业推广配置（JSON 对象），仅 --submit web 时生效；行业/推广形式 id 取自
+        /// 登录后 archive/pre 响应的 industry_list/showtype_list，与花火、充电、仅自己可见互斥。
+        /// 例：'{"industry_id":8,"official":0,"brand_name":"某品牌","brand_source":2,"show_type":"11"}'
+        #[arg(long, value_name = "JSON")]
+        porder: Option<String>,
+
+        /// 花火订单 id（带货等）；仅 --submit web 时生效，必须与 --adorder-type 一起提供
+        #[arg(long, value_name = "ID")]
+        adorder_id: Option<u64>,
+
+        /// 花火订单类型：0 商单/1 任务/2 带货/3 广告合伙人/4 招募/5 CPVV
+        #[arg(long, value_name = "TYPE")]
+        adorder_type: Option<i32>,
+
+        /// 联合投稿参与者（JSON 数组，元素只有 title 与 mid）；仅 --submit web 时生效。
+        /// 例：'[{"title":"剪辑","mid":42}]'
+        #[arg(long, value_name = "JSON")]
+        staffs: Option<String>,
+
+        /// 章节（JSON 数组，from/to 为秒、content 不超过 16 字）；仅 --submit web 时生效。
+        /// 例：'[{"from":0,"to":60,"content":"开场"},{"from":60,"to":120,"content":"正片"}]'
+        #[arg(long, value_name = "JSON")]
+        chapters: Option<String>,
+
+        /// 中文字幕文件路径（.srt）；仅 --submit web 时生效，上传失败只告警不阻断投稿
+        #[arg(long, value_name = "PATH")]
+        subtitle_zh: Option<PathBuf>,
+
+        /// 英文字幕文件路径（.srt）；仅 --submit web 时生效，上传失败只告警不阻断投稿
+        #[arg(long, value_name = "PATH")]
+        subtitle_en: Option<PathBuf>,
+
+        /// 投稿成功后把稿件加入的合集小节 id；加入失败只告警不阻断投稿
+        #[arg(long, value_name = "ID")]
+        section_id: Option<u64>,
+
         #[command(flatten)]
         studio: Studio,
         // #[arg(required = false, last = true, default_value = "client")]
@@ -286,7 +327,7 @@ fn parse_u8(string: &[u8]) -> Result<f64, String> {
 mod tests {
     use super::{Cli, Commands};
     use clap::Parser;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn download_rejects_sizes_that_would_silently_become_zero_or_overflow() {
@@ -415,5 +456,57 @@ mod tests {
         .unwrap();
 
         assert_eq!(cli.user_cookie, Path::new("/tmp/private-account.json"));
+    }
+
+    /// 投稿扩展参数（商业推广/花火/联合投稿/章节/字幕/合集）都能解析
+    #[test]
+    fn upload_publish_extras_flags_parse() {
+        let cli = Cli::try_parse_from([
+            "biliup",
+            "upload",
+            "--porder",
+            r#"{"industry_id":8,"official":0}"#,
+            "--adorder-id",
+            "123456",
+            "--adorder-type",
+            "2",
+            "--staffs",
+            r#"[{"title":"剪辑","mid":42}]"#,
+            "--chapters",
+            r#"[{"from":0,"to":60,"content":"开场"}]"#,
+            "--subtitle-zh",
+            "zh.srt",
+            "--subtitle-en",
+            "en.srt",
+            "--section-id",
+            "8081933",
+            "a.mp4",
+        ])
+        .unwrap();
+        let Commands::Upload {
+            porder,
+            adorder_id,
+            adorder_type,
+            staffs,
+            chapters,
+            subtitle_zh,
+            subtitle_en,
+            section_id,
+            ..
+        } = cli.command
+        else {
+            panic!("not an upload command")
+        };
+        assert_eq!(porder.as_deref(), Some(r#"{"industry_id":8,"official":0}"#));
+        assert_eq!(adorder_id, Some(123456));
+        assert_eq!(adorder_type, Some(2));
+        assert_eq!(staffs.as_deref(), Some(r#"[{"title":"剪辑","mid":42}]"#));
+        assert_eq!(
+            chapters.as_deref(),
+            Some(r#"[{"from":0,"to":60,"content":"开场"}]"#)
+        );
+        assert_eq!(subtitle_zh, Some(PathBuf::from("zh.srt")));
+        assert_eq!(subtitle_en, Some(PathBuf::from("en.srt")));
+        assert_eq!(section_id, Some(8081933));
     }
 }

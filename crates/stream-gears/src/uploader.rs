@@ -1,4 +1,5 @@
 use biliup::uploader::bilibili::{Credit, ResponseData, Studio};
+use biliup::uploader::personal_card::PersonalCard;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyclass;
@@ -122,6 +123,8 @@ pub struct StudioPre {
     up_close_danmu: bool,
     desc_v2_credit: Vec<PyCredit>,
     extra_fields: Option<HashMap<String, serde_json::Value>>,
+    #[builder(default)]
+    personal_cards: Vec<PersonalCard>,
 }
 
 pub async fn upload(
@@ -157,6 +160,7 @@ pub async fn upload(
         up_close_danmu,
         desc_v2_credit,
         extra_fields,
+        personal_cards,
     } = studio_pre;
 
     let bilibili = login_by_cookies(&cookie_file, proxy)
@@ -175,20 +179,24 @@ pub async fn upload(
     let mut videos = Vec::with_capacity(video_path.len());
     for path in video_path {
         let parcel = line.pre_upload(&bilibili, VideoFile::new(&path)?).await?;
-        videos.push(
-            parcel
-                .upload(client.clone(), limit, |stream| {
-                    stream.map(|chunk| {
-                        chunk
-                            .map(|bytes| {
-                                let len = bytes.len();
-                                (bytes, len)
-                            })
-                            .map_err(Into::into)
-                    })
+        // preupload 的 biz_id 即该分P的 cid，投稿前挂个性化卡片时要用
+        let biz_id = parcel.biz_id();
+        let mut video = parcel
+            .upload(client.clone(), limit, |stream| {
+                stream.map(|chunk| {
+                    chunk
+                        .map(|bytes| {
+                            let len = bytes.len();
+                            (bytes, len)
+                        })
+                        .map_err(Into::into)
                 })
-                .await?,
-        );
+            })
+            .await?;
+        if video.cid.is_none() {
+            video.cid = biz_id;
+        }
+        videos.push(video);
     }
 
     let mut desc_v2 = Vec::new();
@@ -222,6 +230,7 @@ pub async fn upload(
         .desc_v2(desc_v2)
         .maybe_extra_fields(extra_fields)
         .build();
+    studio.personal_cards = personal_cards;
 
     if !studio.cover.is_empty() {
         let url = bilibili.cover_up(&std::fs::read(&studio.cover)?).await?;
@@ -229,7 +238,21 @@ pub async fn upload(
         studio.cover = url;
     }
 
-    match submit.unwrap_or("web").to_ascii_lowercase().as_str() {
+    // 网页端行为：投稿前先把个性化卡片逐张挂到第一个分P（plat=10、aid=0）；
+    // 其它通道不支持卡片，告警后照常投稿
+    let submit = submit.unwrap_or("web");
+    if !studio.personal_cards.is_empty() {
+        if submit.eq_ignore_ascii_case("web") {
+            bilibili.attach_personal_cards(&mut studio).await?;
+        } else {
+            tracing::warn!(
+                cards = studio.personal_cards.len(),
+                "personal_cards only works with the web submit channel; skipped"
+            );
+        }
+    }
+
+    match submit.to_ascii_lowercase().as_str() {
         "app" => bilibili.submit_by_app(&studio, None).await,
         "bcutandroid" => bilibili.submit_by_bcut_android(&studio, None).await,
         _ => bilibili.submit_by_web(&studio, None).await,

@@ -38,7 +38,7 @@ chrono = { workspace = true }
 byteorder = "1.5.0"
 regex = { workspace = true }
 async-trait = { workspace = true }
-reqwest = { workspace = true, features = ["charset", "http2", "brotli", "gzip", "json", "stream"] }
+reqwest = { workspace = true, features = ["charset", "http2", "brotli", "gzip", "json", "stream", "multipart"] }
 urlencoding = "2.1"
 libsm = "0.6.0"
 

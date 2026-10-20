@@ -27,6 +27,15 @@ pub(crate) fn template() -> UploadStreamer {
         up_close_reply: None,
         up_close_danmu: None,
         extra_fields: Some(r#"{"copyright":1,"source":"x","watermark":{"state":1}}"#.into()),
+        personal_cards: None,
+        porder: None,
+        adorder_id: None,
+        adorder_type: None,
+        staffs: None,
+        chapters: None,
+        subtitle_zh: None,
+        subtitle_en: None,
+        section_id: None,
     }
 }
 

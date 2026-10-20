@@ -79,6 +79,15 @@ struct TemplateRow {
     up_close_reply: Option<u8>,
     up_close_danmu: Option<u8>,
     extra_fields: Option<String>,
+    personal_cards: Option<String>,
+    porder: Option<String>,
+    adorder_id: Option<i64>,
+    adorder_type: Option<i32>,
+    staffs: Option<String>,
+    chapters: Option<String>,
+    subtitle_zh: Option<String>,
+    subtitle_en: Option<String>,
+    section_id: Option<i64>,
     created_at: i64,
     updated_at: i64,
 }
@@ -111,6 +120,15 @@ impl From<TemplateRow> for Template {
                 up_close_reply: row.up_close_reply,
                 up_close_danmu: row.up_close_danmu,
                 extra_fields: row.extra_fields,
+                personal_cards: row.personal_cards,
+                porder: row.porder,
+                adorder_id: row.adorder_id.and_then(|id| u64::try_from(id).ok()),
+                adorder_type: row.adorder_type,
+                staffs: row.staffs,
+                chapters: row.chapters,
+                subtitle_zh: row.subtitle_zh,
+                subtitle_en: row.subtitle_en,
+                section_id: row.section_id.and_then(|id| u64::try_from(id).ok()),
             },
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -120,7 +138,9 @@ impl From<TemplateRow> for Template {
 
 const TEMPLATE_COLUMNS: &str = "template_name, title, tid, tid_v2, copyright, copyright_source, cover_path, \
      description, dynamic, dtime, dolby, hires, charging_pay, no_reprint, is_only_self, uploader, \
-     account_mid, tags, credits, up_selection_reply, up_close_reply, up_close_danmu, extra_fields";
+     account_mid, tags, credits, up_selection_reply, up_close_reply, up_close_danmu, extra_fields, \
+     personal_cards, porder, adorder_id, adorder_type, staffs, chapters, subtitle_zh, subtitle_en, \
+     section_id";
 
 fn bind_template<'q>(
     query: sqlx::query::QueryAs<'q, sqlx::Sqlite, TemplateRow, sqlx::sqlite::SqliteArguments<'q>>,
@@ -150,6 +170,15 @@ fn bind_template<'q>(
         .bind(spec.up_close_reply)
         .bind(spec.up_close_danmu)
         .bind(&spec.extra_fields)
+        .bind(&spec.personal_cards)
+        .bind(&spec.porder)
+        .bind(spec.adorder_id.map(|id| id as i64))
+        .bind(spec.adorder_type)
+        .bind(&spec.staffs)
+        .bind(&spec.chapters)
+        .bind(&spec.subtitle_zh)
+        .bind(&spec.subtitle_en)
+        .bind(spec.section_id.map(|id| id as i64))
 }
 
 pub async fn list_templates(pool: &ConnectionPool) -> AppResult<Vec<Template>> {
@@ -176,7 +205,8 @@ pub async fn insert_template(
 ) -> AppResult<Template> {
     let sql = format!(
         "INSERT INTO fleet_templates ({TEMPLATE_COLUMNS}, created_at, updated_at) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *"
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+         RETURNING *"
     );
     let row = bind_template(sqlx::query_as(&sql), spec)
         .bind(now)

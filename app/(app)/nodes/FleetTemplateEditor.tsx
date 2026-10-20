@@ -15,6 +15,13 @@ import {
   type FleetTemplate,
   type TemplateInput,
 } from '@/app/lib/use-fleet'
+import { parsePersonalCards, serializePersonalCards } from '@/app/lib/personal-cards'
+import {
+  enhancementIssues,
+  ENHANCEMENT_BLOCK_FIELD,
+  parseEnhancementFields,
+  serializeEnhancementFields,
+} from '@/app/lib/upload-enhancements'
 import styles from './page.module.scss'
 
 const { Text } = Typography
@@ -25,8 +32,13 @@ type TypeTree = { value: number; children: BiliType[] }[]
 function toForm(template: FleetTemplate | null, typeTree: TypeTree | undefined) {
   if (!template) return {}
   const parent = typeTree?.find((t) => t.children.some((c) => c.id === template.tid))?.value
+  // personal_cards 实体上是 JSON 字符串，表单里以结构化数组编辑；解析失败按空数组处理并提示
+  const personalCards = parsePersonalCards(template.personal_cards)
+  // 五项投稿增强（合集/商业推广/联合投稿/章节/字幕）同理：JSON 字符串宽容解析，失败置 broken 标志
+  const enhancements = parseEnhancementFields(template)
   return {
     ...template,
+    ...enhancements,
     tid: typeTree && template.tid !== null ? [parent, template.tid] : (template.tid ?? undefined),
     sound: (template.dolby === 1 ? ['dolby'] : []).concat(template.hires === 1 ? ['hires'] : []),
     interaction: (template.up_close_danmu === 1 ? ['up_close_danmu'] : [])
@@ -36,6 +48,8 @@ function toForm(template: FleetTemplate | null, typeTree: TypeTree | undefined) 
     no_reprint: template.no_reprint === 1,
     is_only_self: template.is_only_self === 1,
     isDtime: Boolean(template.dtime),
+    personal_cards: personalCards.cards,
+    personal_cards_broken: personalCards.broken || undefined,
   }
 }
 
@@ -65,6 +79,9 @@ function fromForm(values: Record<string, any>): TemplateInput {
     credits: values.credits ?? null,
     uploader: values.uploader ?? null,
     extra_fields: values.extra_fields ?? '',
+    personal_cards: serializePersonalCards(values.personal_cards),
+    // 五项投稿增强：结构化表单值序列化成实体上的 JSON 字符串 / 可空标量
+    ...serializeEnhancementFields(values),
   }
 }
 
@@ -134,6 +151,22 @@ export default function FleetTemplateEditor({
   const save = async () => {
     const values = await api.current?.validate()
     if (!values) return
+    // 商业推广互斥、章节规则等在 UI 层先拦一次（与后端校验一致），有问题时不下发
+    const issues = enhancementIssues(values)
+    if (issues.length) {
+      Toast.error({
+        content: (
+          <div>
+            {issues.map((issue, index) => (
+              <div key={index}>{issue.message}</div>
+            ))}
+          </div>
+        ),
+        duration: 6,
+      })
+      api.current?.scrollToField(ENHANCEMENT_BLOCK_FIELD[issues[0].block])
+      return
+    }
     try {
       const input = fromForm(values)
       if (template) await updateTemplate(template.id, input)

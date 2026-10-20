@@ -252,7 +252,13 @@ pub fn required_permission(method: &Method, route: &str, raw_path: &str) -> Opti
         "/v1/users/{id}/archives" if get => AccountManage,
         "/v1/get_qrcode" if get => AccountManage,
         "/v1/login_by_qrcode" if method == Method::POST => AccountManage,
-        "/bili/archive/pre" if get => UploadSubmit,
+        // 四条 B 站代理都是投稿表单的数据源（pre、合集、联合投稿参与者、品牌搜索），
+        // 与投稿同权限
+        "/bili/archive/pre" | "/bili/seasons" | "/bili/staff/search" | "/bili/ad/brand/list"
+            if get =>
+        {
+            UploadSubmit
+        }
         "/v1/uploads" if method == Method::POST => UploadSubmit,
         "/v1/videos"
         | "/v1/activity-events"

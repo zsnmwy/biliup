@@ -648,7 +648,7 @@ async fn commit_unconfirmed(
             info!(parts = videos_len, aid, "边录边传追加分P成功");
         } else {
             let mut studio = build_studio(upload_config, bilibili, videos, recorder).await?;
-            let ret = match submit_to_bilibili(bilibili, &studio, submit_api).await {
+            let ret = match submit_to_bilibili(bilibili, &mut studio, submit_api).await {
                 Ok(ret) => ret,
                 Err(error) => {
                     state.first_submit_uncertain = true;

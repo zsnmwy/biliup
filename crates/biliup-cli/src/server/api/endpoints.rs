@@ -1211,9 +1211,10 @@ pub async fn post_uploads(
                             "",
                         ),
                     );
-                    let studio = build_studio(&upload_config, &bilibili, videos, &recorder).await?;
+                    let mut studio =
+                        build_studio(&upload_config, &bilibili, videos, &recorder).await?;
                     guard.observation().title(&studio.title);
-                    submit_to_bilibili(&bilibili, &studio, submit_api.as_deref()).await?;
+                    submit_to_bilibili(&bilibili, &mut studio, submit_api.as_deref()).await?;
                     info!(template_id = upload_config.id, "通过页面上传成功");
                 }
                 Ok::<_, Report<AppError>>(())

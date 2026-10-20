@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 pub mod download;
-pub mod processing;
 /// 直播间封面 / 主播头像的抓取与落盘
 pub mod live_image;
+pub mod processing;
 /// 录制准入策略
 pub mod recording_policy;
 pub mod room_metadata;

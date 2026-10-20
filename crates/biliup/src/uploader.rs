@@ -11,10 +11,14 @@ use std::path::Path;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+pub mod ad;
 pub mod bilibili;
+pub mod chapter;
 pub mod credential;
 pub mod line;
+pub mod personal_card;
 pub mod season;
+pub mod subtitle;
 pub mod util;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]

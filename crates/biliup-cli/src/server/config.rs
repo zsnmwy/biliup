@@ -501,6 +501,42 @@ pub struct StreamerConfig {
     #[serde(default)]
     pub extra_fields: Option<String>,
 
+    /// 个性化卡片配置（personal_cards JSON 数组字符串），投稿前挂到第一个分P；仅 web 投稿通道生效
+    #[serde(default)]
+    pub personal_cards: Option<String>,
+
+    /// 商业推广配置（porder JSON 对象字符串，空=未启用）；仅 web 投稿通道生效
+    #[serde(default)]
+    pub porder: Option<String>,
+
+    /// 花火订单 id
+    #[serde(default)]
+    pub adorder_id: Option<u64>,
+
+    /// 花火订单类型（0 商单/1 任务/2 带货/3 广告合伙人/4 招募/5 CPVV；商业推广恒 9）
+    #[serde(default)]
+    pub adorder_type: Option<i32>,
+
+    /// 联合投稿参与者（staffs JSON 数组字符串）
+    #[serde(default)]
+    pub staffs: Option<String>,
+
+    /// 章节配置（chapters JSON 数组字符串）
+    #[serde(default)]
+    pub chapters: Option<String>,
+
+    /// 中文字幕文件路径（.srt，同 cover_path 模式）
+    #[serde(default)]
+    pub subtitle_zh: Option<String>,
+
+    /// 英文字幕文件路径（.srt，同 cover_path 模式）
+    #[serde(default)]
+    pub subtitle_en: Option<String>,
+
+    /// 投稿完成后加入的合集小节 id
+    #[serde(default)]
+    pub section_id: Option<u64>,
+
     #[serde(default)]
     pub time_range: Option<String>,
 

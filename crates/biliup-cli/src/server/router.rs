@@ -3,7 +3,8 @@ use crate::server::api::auto_clip::{
     start_session_auto_clip, test_auto_clip,
 };
 use crate::server::api::bilibili_endpoints::{
-    archive_pre_endpoint, get_user_archives_endpoint, get_user_profile_endpoint,
+    ad_brand_list_endpoint, archive_pre_endpoint, get_user_archives_endpoint,
+    get_user_profile_endpoint, seasons_endpoint, staff_search_endpoint,
 };
 use crate::server::api::clip_publish::{
     cover_route, get_session_thumb, list_publish_jobs, preview_publish, publish_batch,
@@ -245,6 +246,9 @@ pub fn router(service_register: ServiceRegister) -> Router<()> {
         .route("/v1/users/{id}/archives", get(get_user_archives_endpoint))
         // B站API代理路由
         .route("/bili/archive/pre", get(archive_pre_endpoint)) // 投稿预处理
+        .route("/bili/seasons", get(seasons_endpoint)) // 合集与小节列表
+        .route("/bili/staff/search", get(staff_search_endpoint)) // 联合投稿参与者搜索
+        .route("/bili/ad/brand/list", get(ad_brand_list_endpoint)) // 商业推广品牌搜索
         // 认证相关路由
         .route("/v1/get_qrcode", get(get_qrcode)) // 获取二维码
         .route("/v1/login_by_qrcode", post(login_by_qrcode)) // 二维码登录

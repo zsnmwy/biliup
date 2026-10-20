@@ -19,7 +19,15 @@ use biliup::bilibili::{BiliBili, Credit, ResponseData, Studio, Video};
 use biliup::client::StatelessClient;
 use biliup::credential::login_by_cookies;
 use biliup::error::Kind;
+use biliup::uploader::ad::{
+    apply_porder_adorder_type, parse_porder, parse_staffs, strip_web_only_extras,
+    validate_publish_extras,
+};
+use biliup::uploader::chapter::parse_chapters;
 use biliup::uploader::line::{Line, Probe, StreamParcel, UploadObserver, UploadedStream};
+use biliup::uploader::personal_card::parse_personal_cards;
+use biliup::uploader::season::EpisodeAdd;
+use biliup::uploader::subtitle::{SubtitleFile, subtitle_files_from_paths};
 use biliup::uploader::util::SubmitOption;
 use biliup::uploader::{VideoFile, line};
 use bytes::Bytes;
@@ -92,7 +100,7 @@ where
         let mut recorder = ctx.recorder(ctx.streamer_info().clone()).clone();
         recorder.filename_prefix = upload_config.title.clone();
 
-        let studio = build_studio(
+        let mut studio = build_studio(
             &upload_config,
             &upload_context.bilibili,
             uploaded_videos.videos,
@@ -103,7 +111,7 @@ where
         if let Some(task) = TaskObservation::current() {
             task.title(&studio.title);
         }
-        submit_to_bilibili(&upload_context.bilibili, &studio, submit_api.as_deref()).await?;
+        submit_to_bilibili(&upload_context.bilibili, &mut studio, submit_api.as_deref()).await?;
     } else if TaskObservation::current().is_some() {
         return Err(AppError::Custom("没有一个分段上传成功".into()).into());
     }
@@ -625,7 +633,9 @@ async fn upload_file_inner(
 
     let instant = Instant::now();
 
-    let video = uploader
+    // preupload 的 biz_id 即该分P的 cid，投稿前挂个性化卡片时要用
+    let biz_id = uploader.biz_id();
+    let mut video = uploader
         .upload_with_observer(
             client.clone(),
             *limit,
@@ -643,6 +653,9 @@ async fn upload_file_inner(
         )
         .await
         .change_context(AppError::Unknown)?;
+    if video.cid.is_none() {
+        video.cid = biz_id;
+    }
     let t = instant.elapsed().as_millis();
     info!(
         "Upload completed: {file_name} => cost {:.2}s, {:.2} MB/s.",
@@ -654,7 +667,7 @@ async fn upload_file_inner(
 
 pub async fn submit_to_bilibili(
     bilibili: &BiliBili,
-    studio: &Studio,
+    studio: &mut Studio,
     submit_api: Option<&str>,
 ) -> AppResult<ResponseData> {
     if let Some(task) = TaskObservation::current() {
@@ -677,6 +690,28 @@ pub async fn submit_to_bilibili(
         Some(submit) => SubmitOption::from_str(submit).unwrap_or(SubmitOption::Web),
         _ => SubmitOption::Web,
     };
+
+    // 网页端行为：投稿前的附加动作（个性化卡片、章节、字幕）与商业/花火/联合投稿字段
+    // 都只支持 web 投稿通道；其它通道告警并把 web-only 字段从请求体里去掉
+    match submit_option {
+        SubmitOption::Web => {
+            apply_porder_adorder_type(studio);
+            // 网页端行为：投稿前先把个性化卡片逐张挂到第一个分P（plat=10、aid=0）；
+            // 卡片接口失败会中断投稿，避免产出「以为挂了卡片」的稿件
+            bilibili
+                .attach_personal_cards(studio)
+                .await
+                .change_context(AppError::Unknown)?;
+            // 章节预提交；接口失败同样中断投稿，避免 has_chapter 标记失真
+            bilibili
+                .attach_chapters(studio)
+                .await
+                .change_context(AppError::Unknown)?;
+            // 字幕非必需：内部失败只告警，不阻断投稿
+            bilibili.attach_subtitles(studio).await;
+        }
+        _ => strip_web_only_extras(studio),
+    }
 
     let result = match submit_option {
         SubmitOption::BCutAndroid => bilibili
@@ -704,7 +739,53 @@ pub async fn submit_to_bilibili(
         }
         task.phase("processing");
     }
+    join_season_section(bilibili, studio, &result).await;
     Ok(result)
+}
+
+/// 投稿成功拿到 aid 之后加入配置的合集小节（episodes/add）。
+/// 稿件已经发出去不能回滚，所以失败只告警不阻断；分P缺 cid 时同样告警跳过。
+pub(crate) async fn join_season_section(
+    bilibili: &BiliBili,
+    studio: &Studio,
+    result: &ResponseData,
+) {
+    let Some(section_id) = studio.section_id else {
+        return;
+    };
+    let aid = match aid_from_submit(result) {
+        Ok(aid) => aid,
+        Err(error) => {
+            warn!(
+                %error,
+                section_id,
+                "投稿成功但未返回 aid，跳过加入合集，请到 B 站手动添加"
+            );
+            return;
+        }
+    };
+    let Some(cid) = studio.videos.first().and_then(|video| video.cid) else {
+        warn!(
+            aid,
+            section_id, "分P缺少 cid，跳过加入合集，请到 B 站手动添加"
+        );
+        return;
+    };
+    let episode = EpisodeAdd {
+        aid,
+        cid,
+        title: studio.title.clone(),
+        charging_pay: studio.charging_pay,
+    };
+    match bilibili.add_to_season(section_id, &[episode]).await {
+        Ok(()) => info!(aid, section_id, "稿件已加入合集小节"),
+        Err(error) => warn!(
+            aid,
+            section_id,
+            error = %error,
+            "加入合集小节失败，稿件已投稿成功，请到 B 站手动添加"
+        ),
+    }
 }
 
 pub async fn edit_to_bilibili(
@@ -792,6 +873,8 @@ pub(crate) async fn complete_byte_stream(
     uploaded: UploadedStream,
     observation: Option<&FileObservation>,
 ) -> AppResult<Video> {
+    // preupload 的 biz_id 即该分P的 cid（边录边传的流式上传路径）
+    let biz_id = uploaded.biz_id();
     let result = uploaded.complete().await.change_context(AppError::Unknown);
     if let Some(observation) = observation {
         observation.finish(
@@ -802,7 +885,11 @@ pub(crate) async fn complete_byte_stream(
                 .as_deref(),
         );
     }
-    result
+    let mut video = result?;
+    if video.cid.is_none() {
+        video.cid = biz_id;
+    }
+    Ok(video)
 }
 
 // 解析投稿的「转载来源」(source) 字段。
@@ -951,6 +1038,29 @@ pub(crate) async fn build_studio(
     recorder: &Recorder,
 ) -> AppResult<Studio> {
     let mut studio = studio_from_template(upload_config, videos, recorder);
+    // 个性化卡片配置是 JSON 数组字符串，解析失败要报可读错误而不是静默跳过
+    studio.personal_cards = parse_personal_cards(upload_config.personal_cards.as_deref())
+        .map_err(|error| AppError::Custom(format!("解析 personal_cards 失败: {error}")))?;
+    // 商业推广 / 花火 / 联合投稿 / 章节配置同样是 JSON 字符串，解析失败报可读错误
+    studio.porder = parse_porder(upload_config.porder.as_deref())
+        .map_err(|error| AppError::Custom(format!("解析 porder 失败: {error}")))?;
+    studio.adorder_id = upload_config
+        .adorder_id
+        .and_then(|id| u64::try_from(id).ok());
+    studio.adorder_type = upload_config.adorder_type;
+    let staffs = parse_staffs(upload_config.staffs.as_deref())
+        .map_err(|error| AppError::Custom(format!("解析 staffs 失败: {error}")))?;
+    studio.staffs = (!staffs.is_empty()).then_some(staffs);
+    studio.chapters = parse_chapters(upload_config.chapters.as_deref())
+        .map_err(|error| AppError::Custom(format!("解析 chapters 失败: {error}")))?;
+    studio.section_id = upload_config
+        .section_id
+        .and_then(|id| u64::try_from(id).ok());
+    studio.subtitle_files = expand_subtitle_paths(upload_config);
+    // 互斥校验尽早失败：商业推广×花火、商业推广×充电、商业推广×仅自己可见、
+    // 转载×花火等组合到这里直接报错，不打无效的投稿
+    validate_publish_extras(&studio)
+        .map_err(|error| AppError::Custom(format!("投稿配置校验失败: {error}")))?;
     // 处理封面上传
     if !studio.cover.is_empty()
         && let Ok(c) = &std::fs::read(&studio.cover).inspect_err(|e| error!(e=?e))
@@ -960,6 +1070,21 @@ pub(crate) async fn build_studio(
     };
 
     Ok(studio)
+}
+
+/// 模板里的字幕路径与 cover_path 一样支持 `~` 展开；zh、en 各一个可选槽位
+fn expand_subtitle_paths(upload_config: &UploadStreamer) -> Vec<SubtitleFile> {
+    subtitle_files_from_paths(
+        upload_config.subtitle_zh.as_deref(),
+        upload_config.subtitle_en.as_deref(),
+    )
+    .into_iter()
+    .map(|subtitle| {
+        let path = subtitle.path.to_string_lossy();
+        let expanded = shellexpand::tilde(&path);
+        SubtitleFile::new(PathBuf::from(expanded.as_ref()), subtitle.lan)
+    })
+    .collect()
 }
 
 /// 按上传模板拼出稿件；`cover` 还是本地路径，由调用方上传。
@@ -988,7 +1113,7 @@ pub(crate) fn studio_from_template(
         .title(recorder.format_title())
         .videos(videos)
         .dolby(upload_config.dolby.unwrap_or_default())
-        // .lossless_music(upload_config.)
+        .lossless_music(upload_config.hires.unwrap_or_default())
         .no_reprint(upload_config.no_reprint.unwrap_or_default())
         .charging_pay(upload_config.charging_pay.unwrap_or_default())
         .up_close_reply(upload_config.up_close_reply.unwrap_or_default())
@@ -1116,6 +1241,15 @@ mod tests {
             up_close_reply: None,
             up_close_danmu: None,
             extra_fields: None,
+            personal_cards: None,
+            porder: None,
+            adorder_id: None,
+            adorder_type: None,
+            staffs: None,
+            chapters: None,
+            subtitle_zh: None,
+            subtitle_en: None,
+            section_id: None,
         };
         let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap();
         let worker = Arc::new(

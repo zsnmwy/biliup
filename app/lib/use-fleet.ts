@@ -219,6 +219,24 @@ export interface FleetTemplate {
   up_close_reply: number | null
   up_close_danmu: number | null
   extra_fields: string | null
+  /** 个性化卡片（互动引导/关联视频/投票弹幕），JSON 数组字符串；空串表示未配置 */
+  personal_cards: string | null
+  /** 商业推广-其他，porder 对象 JSON 字符串；空串/null 表示未配置（结构化编辑见 lib/upload-enhancements.ts） */
+  porder: string | null
+  /** 花火单号 */
+  adorder_id: number | null
+  /** 花火单类型：0 商单 / 1 任务 / 2 带货 / 3 广告合伙人 / 4 招募 / 5 CPVV */
+  adorder_type: number | null
+  /** 联合投稿参与者 [{title, mid}]，JSON 数组字符串；空串/null 表示未配置 */
+  staffs: string | null
+  /** 章节 [{from, to, content}]（秒），JSON 数组字符串；空串/null 表示未配置 */
+  chapters: string | null
+  /** 中文字幕文件（服务器本地 .srt/.ass 路径） */
+  subtitle_zh: string | null
+  /** 英文字幕文件（服务器本地路径） */
+  subtitle_en: string | null
+  /** 加入合集的小节 id（数据源 GET /bili/seasons） */
+  section_id: number | null
   created_at: number
   updated_at: number
 }

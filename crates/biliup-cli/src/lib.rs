@@ -377,6 +377,33 @@ fn to_upload_streamer_insert(
         up_close_danmu: streamer.up_close_danmu,
         extra_fields: streamer.extra_fields.clone(),
         is_only_self: streamer.is_only_self,
+        personal_cards: streamer.personal_cards.clone(),
+        porder: streamer.porder.clone(),
+        adorder_id: streamer
+            .adorder_id
+            .map(|value| {
+                i64::try_from(value).map_err(|_| {
+                    Report::new(AppError::Custom(format!(
+                        "streamer {remark} adorder_id 超出范围: {value}"
+                    )))
+                })
+            })
+            .transpose()?,
+        adorder_type: streamer.adorder_type,
+        staffs: streamer.staffs.clone(),
+        chapters: streamer.chapters.clone(),
+        subtitle_zh: streamer.subtitle_zh.clone(),
+        subtitle_en: streamer.subtitle_en.clone(),
+        section_id: streamer
+            .section_id
+            .map(|value| {
+                i64::try_from(value).map_err(|_| {
+                    Report::new(AppError::Custom(format!(
+                        "streamer {remark} section_id 超出范围: {value}"
+                    )))
+                })
+            })
+            .transpose()?,
     }))
 }
 
@@ -402,6 +429,15 @@ fn has_upload_config(streamer: &StreamerConfig) -> bool {
         || streamer.user_cookie.is_some()
         || streamer.tags.is_some()
         || streamer.extra_fields.is_some()
+        || streamer.personal_cards.is_some()
+        || streamer.porder.is_some()
+        || streamer.adorder_id.is_some()
+        || streamer.adorder_type.is_some()
+        || streamer.staffs.is_some()
+        || streamer.chapters.is_some()
+        || streamer.subtitle_zh.is_some()
+        || streamer.subtitle_en.is_some()
+        || streamer.section_id.is_some()
 }
 
 fn to_live_streamer_insert(

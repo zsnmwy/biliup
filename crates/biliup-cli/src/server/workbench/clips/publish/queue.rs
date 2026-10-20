@@ -212,9 +212,15 @@ impl Connection for BiliConnection {
     }
 
     async fn submit(&self, studio: &Studio) -> Result<Submitted, Failure> {
-        let ret = submit_to_bilibili(&self.context.bilibili, studio, self.submit_api.as_deref())
-            .await
-            .map_err(|e| describe_submit(&e))?;
+        // submit_to_bilibili 需要可变的 studio（挂个性化卡片时要回填 pre_command）
+        let mut studio = studio.clone();
+        let ret = submit_to_bilibili(
+            &self.context.bilibili,
+            &mut studio,
+            self.submit_api.as_deref(),
+        )
+        .await
+        .map_err(|e| describe_submit(&e))?;
         let bvid = ret
             .data
             .as_ref()

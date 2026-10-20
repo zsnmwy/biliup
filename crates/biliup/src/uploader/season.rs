@@ -514,14 +514,10 @@ mod tests {
         let req = server.only_request();
         assert_eq!(req.method, Method::GET);
         assert_eq!(req.path, "/x2/creative/web/seasons");
-        let expected: HashMap<String, String> = [
-            ("pn", "2"),
-            ("ps", "10"),
-            ("draft", "1"),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.into(), v.into()))
-        .collect();
+        let expected: HashMap<String, String> = [("pn", "2"), ("ps", "10"), ("draft", "1")]
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect();
         assert_eq!(req.query, expected);
 
         assert_eq!(page.total, Some(1));

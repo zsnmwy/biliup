@@ -4,6 +4,12 @@ import { Form, Toast, Notification, Typography } from '@douyinfe/semi-ui'
 import { FormApi } from '@douyinfe/semi-ui/lib/es/form'
 import { IconPlusCircle } from '@douyinfe/semi-icons'
 import { sendRequest, StudioEntity } from '../../../lib/api-streamer'
+import { serializePersonalCards } from '../../../lib/personal-cards'
+import {
+  enhancementIssues,
+  ENHANCEMENT_BLOCK_FIELD,
+  serializeEnhancementFields,
+} from '../../../lib/upload-enhancements'
 import useSWRMutation from 'swr/mutation'
 import { useRouter } from 'next/navigation'
 import TemplateFields from '../../../ui/TemplateFields'
@@ -19,6 +25,23 @@ export default function Add() {
   const handleCreate = async () => {
     const values = await api.current?.validate()
     if (!values) return
+    // 商业推广互斥、章节规则、联合投稿职位等在 UI 层先拦一次；有问题就不发请求并滚到对应区块
+    const issues = enhancementIssues(values)
+    if (issues.length) {
+      Notification.error({
+        title: '投稿配置有误，未保存',
+        content: (
+          <div>
+            {issues.map((issue, index) => (
+              <div key={index}>{issue.message}</div>
+            ))}
+          </div>
+        ),
+        position: 'top',
+      })
+      api.current?.scrollToField(ENHANCEMENT_BLOCK_FIELD[issues[0].block])
+      return
+    }
     try {
       const studioEntity: StudioEntity = {
         template_name: values.template_name,
@@ -46,6 +69,10 @@ export default function Add() {
         credits: values.credits,
         uploader: values.uploader,
         extra_fields: values.extra_fields ?? '',
+        // 表单里是结构化卡片数组，这里序列化成实体上的 JSON 字符串；没有卡片时存空串
+        personal_cards: serializePersonalCards(values.personal_cards),
+        // 五项投稿增强（加入合集/商业推广/联合投稿/章节/字幕）：结构化表单值序列化成实体字段
+        ...serializeEnhancementFields(values),
       }
       await trigger(studioEntity)
       Toast.success('创建成功')

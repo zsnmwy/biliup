@@ -3,6 +3,7 @@ use crate::server::errors::{AppError, AppResult};
 use crate::upload_lock::UploadLock;
 use biliup::client::StatelessClient;
 use biliup::error::Kind;
+use biliup::uploader::ad::{apply_porder_adorder_type, strip_web_only_extras};
 use biliup::uploader::bilibili::{BiliBili, Studio, Vid, Video};
 use biliup::uploader::credential::{Credential, LoginInfo, save_login_info};
 use biliup::uploader::line::Probe;
@@ -190,7 +191,25 @@ pub async fn upload_by_command(
     cover_up(&mut studio, &bili).await?;
     studio.videos = upload(&video_path, &bili, line, limit).await?;
 
+    // 网页端行为：投稿前的附加动作（个性化卡片、章节、字幕）与商业/花火/联合投稿
+    // 字段都只支持 web 投稿通道；其它通道告警并把 web-only 字段从请求体里去掉
     match submit {
+        SubmitOption::Web => {
+            // 商业推广配置时 adorder_type 恒 9（entry.rs 已做过互斥校验）
+            apply_porder_adorder_type(&mut studio);
+            bili.attach_personal_cards(&mut studio)
+                .await
+                .change_context_lazy(|| AppError::Unknown)?;
+            bili.attach_chapters(&mut studio)
+                .await
+                .change_context_lazy(|| AppError::Unknown)?;
+            // 字幕非必需：内部失败只告警，不阻断投稿
+            bili.attach_subtitles(&mut studio).await;
+        }
+        _ => strip_web_only_extras(&mut studio),
+    }
+
+    let result = match submit {
         SubmitOption::BCutAndroid => bili
             .submit_by_bcut_android(&studio, proxy)
             .await
@@ -204,6 +223,9 @@ pub async fn upload_by_command(
             .await
             .change_context_lazy(|| AppError::Unknown)?,
     };
+
+    // 投稿成功拿到 aid 后加入配置的合集小节；失败只告警，稿件已发出不能回滚
+    crate::server::common::upload::join_season_section(&bili, &studio, &result).await;
 
     Ok(())
 }
@@ -593,7 +615,9 @@ pub async fn upload(
 
         let instant = Instant::now();
 
-        let video = uploader
+        // preupload 的 biz_id 即该分P的 cid，投稿前挂个性化卡片时要用
+        let biz_id = uploader.biz_id();
+        let mut video = uploader
             .upload(client.clone(), limit, |vs| {
                 vs.map(|chunk| {
                     let pb = pb.clone();
@@ -604,6 +628,9 @@ pub async fn upload(
             })
             .await
             .change_context_lazy(|| AppError::Unknown)?;
+        if video.cid.is_none() {
+            video.cid = biz_id;
+        }
         pb.finish_and_clear();
         let t = instant.elapsed().as_millis();
         info!(

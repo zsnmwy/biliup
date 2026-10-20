@@ -1020,7 +1020,11 @@ fn segment_files_are_matched_to_the_working_directory_by_name() {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path();
     let inside = dir.join("c.flv").to_string_lossy().into_owned();
-    let outside = dir.join("elsewhere").join("d.flv").to_string_lossy().into_owned();
+    let outside = dir
+        .join("elsewhere")
+        .join("d.flv")
+        .to_string_lossy()
+        .into_owned();
     let by_name = store::segment_files_in_dir(
         vec![
             file(1, "a.flv", 0),

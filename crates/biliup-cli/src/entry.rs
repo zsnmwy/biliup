@@ -4,9 +4,15 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+use biliup::uploader::ad::{
+    apply_porder_adorder_type, parse_porder, parse_staffs, validate_publish_extras,
+};
+use biliup::uploader::chapter::parse_chapters;
+use biliup::uploader::personal_card::parse_personal_cards;
+use biliup::uploader::subtitle::{SUBTITLE_LAN_EN, SUBTITLE_LAN_ZH, SubtitleFile};
 use biliup::uploader::util::SubmitOption;
 use clap::Parser;
-use error_stack::ResultExt;
+use error_stack::{Report, ResultExt};
 use futures::future::BoxFuture;
 use time::macros::format_description;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -151,10 +157,43 @@ pub async fn dispatch(cli: Cli, log_handle: LogHandle) -> AppResult<()> {
             config: None,
             line,
             limit,
-            studio,
+            mut studio,
             submit,
+            personal_cards,
+            porder,
+            adorder_id,
+            adorder_type,
+            staffs,
+            chapters,
+            subtitle_zh,
+            subtitle_en,
+            section_id,
         } => {
             let video_path: Vec<_> = video_path.into_iter().map(expand_path).collect();
+            studio.personal_cards = parse_personal_cards(personal_cards.as_deref())
+                .map_err(|error| Report::new(AppError::Custom(error)))?;
+            studio.porder = parse_porder(porder.as_deref())
+                .map_err(|error| Report::new(AppError::Custom(error)))?;
+            studio.adorder_id = adorder_id;
+            studio.adorder_type = adorder_type;
+            let parsed_staffs = parse_staffs(staffs.as_deref())
+                .map_err(|error| Report::new(AppError::Custom(error)))?;
+            studio.staffs = (!parsed_staffs.is_empty()).then_some(parsed_staffs);
+            studio.chapters = parse_chapters(chapters.as_deref())
+                .map_err(|error| Report::new(AppError::Custom(error)))?;
+            studio.subtitle_files = [
+                (subtitle_zh, SUBTITLE_LAN_ZH),
+                (subtitle_en, SUBTITLE_LAN_EN),
+            ]
+            .into_iter()
+            .filter_map(|(path, lan)| path.map(|path| SubtitleFile::new(expand_path(path), lan)))
+            .collect();
+            studio.section_id = section_id;
+            // 互斥校验尽早失败：不打无效的投稿
+            validate_publish_extras(&studio).map_err(|error| {
+                Report::new(AppError::Custom(format!("投稿配置校验失败: {error}")))
+            })?;
+            apply_porder_adorder_type(&mut studio);
             upload_by_command(
                 studio,
                 user_cookie,
