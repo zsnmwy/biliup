@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use biliup::uploader::ad::{
-    apply_porder_adorder_type, parse_porder, parse_staffs, validate_publish_extras,
+    apply_porder_adorder_type, apply_reward_goods_order_id, parse_porder, parse_staffs,
+    validate_publish_extras,
 };
 use biliup::uploader::chapter::parse_chapters;
 use biliup::uploader::personal_card::parse_personal_cards;
@@ -194,6 +195,7 @@ pub async fn dispatch(cli: Cli, log_handle: LogHandle) -> AppResult<()> {
                 Report::new(AppError::Custom(format!("投稿配置校验失败: {error}")))
             })?;
             apply_porder_adorder_type(&mut studio);
+            apply_reward_goods_order_id(&mut studio);
             upload_by_command(
                 studio,
                 user_cookie,

@@ -22,6 +22,8 @@ import {
   TabPane,
   Input as RawInput,
   TextArea as RawTextArea,
+  RadioGroup as RawRadioGroup,
+  Radio as RawRadio,
   // TextArea,
   useFormState,
 } from '@douyinfe/semi-ui'
@@ -49,6 +51,7 @@ import {
   parseChapterText,
   seasonSectionOptions,
   staffIssues,
+  toAdorderType,
   type AdTab,
   type StaffCandidate,
   type UploadEnhancementFormOverrides,
@@ -274,6 +277,21 @@ const TemplateFields: React.FC<TemplateFieldsProps> = ({
 
   // 商业推广的两个 tab（视频带货/其他）；编辑回填时 initValues 里 ad_tab 指向已有配置的那一侧
   const [adTab, setAdTab] = useState<AdTab>(() => (formApi.getValue('ad_tab') as AdTab | undefined) ?? 'goods')
+
+  // 带货投稿方式（对齐 B 站投稿页单选）：「投稿后再添加商品」＝悬赏带货，
+  // 表单里固定 adorder_type=2、adorder_id 留空（服务端会生成本地虚拟订单 id）；
+  // 未配置过时默认「投稿后再添加商品」，与 B 站一致
+  const [goodsMode, setGoodsMode] = useState<'later' | 'order'>(() => {
+    const type = toAdorderType(values.adorder_type)
+    if (type === null && values.adorder_id == null) return 'later'
+    if (type === 2 && values.adorder_id == null) return 'later'
+    return 'order'
+  })
+  useEffect(() => {
+    if (goodsMode !== 'later') return
+    if (toAdorderType(formApi.getValue('adorder_type')) !== 2) formApi.setValue('adorder_type', 2)
+    if (formApi.getValue('adorder_id') != null) formApi.setValue('adorder_id', null)
+  }, [goodsMode, formApi])
 
   // 品牌搜索：勾选「官方合作」后才可用，输入防抖 500ms（与 B 站投稿页一致）
   const [brandKw, setBrandKw] = useState('')
@@ -605,25 +623,38 @@ const TemplateFields: React.FC<TemplateFieldsProps> = ({
             {/* 两个 tab 的字段始终挂载、只切换显示：Semi 表单字段卸载时默认会丢值（keepState 在复杂场景下不可靠），
                 切 tab 不能清掉用户已填的花火单号或推广信息，互斥校验也要两边都看得到 */}
             <div style={{ display: adTab === 'goods' ? undefined : 'none' }}>
-              <InputNumber
-                field="adorder_id"
-                label="花火单号"
-                placeholder="花火商单 / 任务的单号"
-                min={0}
-                step={1}
-                style={{ width: 240 }}
-              />
-              <Form.Select
-                field="adorder_type"
-                label="花火类型"
-                optionList={ADORDER_TYPE_OPTIONS}
-                placeholder="选择单号对应的类型"
-                showClear
-                style={{ width: 240 }}
-              />
-              <div style={{ fontSize: 12, color: 'var(--semi-color-tertiary)' }}>
-                投稿后再添加商品：投稿成功后请前往【创作中心—收益管理—悬赏带货】配置商品
-              </div>
+              <RawRadioGroup
+                type="button"
+                value={goodsMode}
+                onChange={e => setGoodsMode(e.target.value as 'later' | 'order')}
+              >
+                <RawRadio value="order">添加商品投稿</RawRadio>
+                <RawRadio value="later">投稿后再添加商品</RawRadio>
+              </RawRadioGroup>
+              {goodsMode === 'order' ? (
+                <div>
+                  <InputNumber
+                    field="adorder_id"
+                    label="花火单号"
+                    placeholder="花火商单 / 任务的单号"
+                    min={0}
+                    step={1}
+                    style={{ width: 240 }}
+                  />
+                  <Form.Select
+                    field="adorder_type"
+                    label="花火类型"
+                    optionList={ADORDER_TYPE_OPTIONS}
+                    placeholder="选择单号对应的类型"
+                    showClear
+                    style={{ width: 240 }}
+                  />
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--semi-color-tertiary)' }}>
+                  投稿时自动带上带货声明；投稿成功后请尽快前往【创作中心—收益管理—悬赏带货】配置商品至稿件
+                </div>
+              )}
             </div>
             <div style={{ display: adTab === 'other' ? undefined : 'none' }}>
               <Form.Select

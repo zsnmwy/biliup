@@ -80,11 +80,14 @@ pub enum Commands {
         #[arg(long, value_name = "JSON")]
         porder: Option<String>,
 
-        /// 花火订单 id（带货等）；仅 --submit web 时生效，必须与 --adorder-type 一起提供
+        /// 花火订单 id（带货等）；仅 --submit web 时生效，必须与 --adorder-type 一起提供。
+        /// 带货想走「投稿后再添加商品」（悬赏带货）时不填 id，只给 --adorder-type 2
         #[arg(long, value_name = "ID")]
         adorder_id: Option<u64>,
 
-        /// 花火订单类型：0 商单/1 任务/2 带货/3 广告合伙人/4 招募/5 CPVV
+        /// 花火订单类型：0 商单/1 任务/2 带货/3 广告合伙人/4 招募/5 CPVV。
+        /// type=2 且不带 --adorder-id = 悬赏带货「投稿后再添加商品」：
+        /// 自动生成本地虚拟订单 id，商品发布后在创作中心—收益管理—悬赏带货 绑定
         #[arg(long, value_name = "TYPE")]
         adorder_type: Option<i32>,
 

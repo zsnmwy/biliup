@@ -636,7 +636,8 @@ export function porderFormIssues(form: unknown): string[] {
  * 商业推广（花火 + 其他）的问题清单，含 UI 层互斥：
  * - 其他 与 仅自己可见/充电面板 互斥
  * - 花火单号 与 其他 互斥
- * - 花火单号 与 转载（copyright=2）互斥
+ * - 花火（单号或类型）与 转载（copyright=2）互斥
+ * - 花火类型除带货（type=2，即「投稿后再添加商品」的悬赏带货）外必须与单号一起填
  * 关闭商业推广开关时其余残留值不参与校验（序列化时也会全部丢弃）。
  */
 export function adPromotionIssues(values: EnhancementFormSnapshot | null | undefined): EnhancementIssue[] {
@@ -644,6 +645,7 @@ export function adPromotionIssues(values: EnhancementFormSnapshot | null | undef
 	const issues: EnhancementIssue[] = []
 	const porder = serializePorderForm(values.porder_form)
 	const adorderId = toAdorderId(values.adorder_id)
+	const adorderType = toAdorderType(values.adorder_type)
 	const flagOn = (value: unknown) => value === true || value === 1
 	if (porder && (flagOn(values.is_only_self) || flagOn(values.charging_pay))) {
 		issues.push({ block: 'ad', message: '仅自己可见/开启充电的稿件不支持商业推广' })
@@ -651,11 +653,17 @@ export function adPromotionIssues(values: EnhancementFormSnapshot | null | undef
 	if (porder && adorderId !== null) {
 		issues.push({ block: 'ad', message: '商业推广与花火商单不能同时配置' })
 	}
-	if (adorderId !== null && values.copyright === 2) {
-		issues.push({ block: 'ad', message: '花火商单不支持转载稿件' })
+	if ((adorderId !== null || adorderType !== null) && values.copyright === 2) {
+		issues.push({ block: 'ad', message: '花火带货不支持转载稿件' })
 	}
-	if (adorderId !== null && toAdorderType(values.adorder_type) === null) {
+	if (adorderId !== null && adorderType === null) {
 		issues.push({ block: 'ad', message: '已填花火单号，请选择花火类型' })
+	}
+	if (adorderId === null && adorderType !== null && adorderType !== 2) {
+		issues.push({
+			block: 'ad',
+			message: '该花火类型需要填写花火单号；带货（投稿后再添加商品）可不填单号',
+		})
 	}
 	for (const message of porderFormIssues(values.porder_form)) {
 		issues.push({ block: 'ad', message })

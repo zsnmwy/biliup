@@ -10,6 +10,7 @@
 //! 联合投稿参与者搜索 `GET member.bilibili.com/x/web/staff/user/search?kw=`。
 
 use crate::uploader::bilibili::{Porder, Staff, Studio};
+use rand::Rng;
 
 /// 花火订单类型：商单
 pub const AD_ORDER_TYPE_COMMERCIAL: i32 = 0;
@@ -25,6 +26,10 @@ pub const AD_ORDER_TYPE_RECRUIT: i32 = 4;
 pub const AD_ORDER_TYPE_CPVV: i32 = 5;
 /// 商业推广在 add/v3 里的 adorder_type 固定值
 pub const PORDER_AD_ORDER_TYPE: i32 = 9;
+
+/// 「投稿后再添加商品」（悬赏带货）的虚拟订单 id 上界：网页端
+/// `Math.floor(Math.random() * 1e17)`，即 [0, 1e17) 的随机整数。
+const REWARD_GOODS_ORDER_ID_LIMIT: u64 = 100_000_000_000_000_000;
 
 /// 解析投稿模板里的 `porder` 配置（JSON 对象字符串）。
 /// `None` 或空白视为未启用；解析失败返回可读错误。
@@ -85,10 +90,27 @@ pub fn validate_publish_extras(studio: &Studio) -> std::result::Result<(), Strin
                 "adorder_type 必须在 0-5 之间（0 商单/1 任务/2 带货/3 广告合伙人/4 招募/5 CPVV），实际 {adorder_type}"
             ));
         }
-    } else if studio.adorder_type.is_some() && studio.porder.is_none() {
-        return Err(
-            "单独配置了 adorder_type：它必须与 adorder_id 一起提供，或由 porder 自动置 9".into(),
-        );
+    } else if let Some(adorder_type) = studio.adorder_type {
+        if studio.porder.is_none() {
+            if !(AD_ORDER_TYPE_COMMERCIAL..=AD_ORDER_TYPE_CPVV).contains(&adorder_type) {
+                return Err(format!(
+                    "adorder_type 必须在 0-5 之间（0 商单/1 任务/2 带货/3 广告合伙人/4 招募/5 CPVV），实际 {adorder_type}"
+                ));
+            }
+            // 带货（type=2）允许不带 adorder_id：等价于网页端「投稿后再添加商品」
+            // （悬赏带货），apply_reward_goods_order_id 会补虚拟订单 id。
+            if studio.adorder_id.is_none() && adorder_type != AD_ORDER_TYPE_GOODS {
+                return Err(format!(
+                    "单独配置了 adorder_type={adorder_type}：它必须与 adorder_id 一起提供；\
+                     带货（type=2）可以单独配置，等价于悬赏带货「投稿后再添加商品」"
+                ));
+            }
+            if studio.copyright == 2 {
+                return Err(
+                    "转载稿件不支持花火带货（adorder_type），请改回自制或去掉花火配置".into(),
+                );
+            }
+        }
     }
     Ok(())
 }
@@ -97,6 +119,19 @@ pub fn validate_publish_extras(studio: &Studio) -> std::result::Result<(), Strin
 pub fn apply_porder_adorder_type(studio: &mut Studio) {
     if studio.porder.is_some() && studio.adorder_id.is_none() {
         studio.adorder_type = Some(PORDER_AD_ORDER_TYPE);
+    }
+}
+
+/// 网页端「投稿后再添加商品」（悬赏带货）行为（ad-video-sdk `onChange`）：
+/// 本地构造虚拟花火订单（type=2，id 为随机 17 位数字字符串），提交时
+/// `adorder_id = Number(id) || 0`、`adorder_type = 2`，不发 goodsInfo 与
+/// service_provider_id；真实商品在发布后于「创作中心—收益管理—悬赏带货」绑定。
+/// `adorder_type=2` 且未提供 `adorder_id` 时按此补齐虚拟订单 id。
+pub fn apply_reward_goods_order_id(studio: &mut Studio) {
+    if studio.adorder_type == Some(AD_ORDER_TYPE_GOODS) && studio.adorder_id.is_none() {
+        let id = rand::thread_rng().gen_range(0..REWARD_GOODS_ORDER_ID_LIMIT);
+        tracing::info!("悬赏带货（投稿后再添加商品）：生成虚拟订单 id={id}");
+        studio.adorder_id = Some(id);
     }
 }
 
@@ -129,8 +164,8 @@ pub fn strip_web_only_extras(studio: &mut Studio) {
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_porder_adorder_type, parse_porder, parse_staffs, strip_web_only_extras,
-        validate_publish_extras,
+        apply_porder_adorder_type, apply_reward_goods_order_id, parse_porder, parse_staffs,
+        strip_web_only_extras, validate_publish_extras,
     };
     use crate::uploader::bilibili::{Porder, Staff, Studio};
     use crate::uploader::chapter::Chapter;
@@ -286,5 +321,60 @@ mod tests {
         assert!(studio.staffs.is_none());
         assert!(studio.chapters.is_empty());
         assert_eq!(studio.tid, 95, "普通字段不受影响");
+    }
+
+    /// 悬赏带货「投稿后再添加商品」：type=2 不带 id 通过校验，
+    /// apply 后补出 [0, 1e17) 内的虚拟订单 id（网页端 Math.random 行为）
+    #[test]
+    fn reward_goods_type_without_id_generates_virtual_order() {
+        use super::apply_reward_goods_order_id;
+        let mut studio = studio();
+        studio.adorder_type = Some(2);
+        assert!(validate_publish_extras(&studio).is_ok());
+        apply_reward_goods_order_id(&mut studio);
+        let id = studio.adorder_id.expect("虚拟订单 id 应被补齐");
+        assert!(id < 100_000_000_000_000_000, "{id}");
+        assert_eq!(studio.adorder_type, Some(2));
+    }
+
+    /// 已有真实订单的带货（id+type=2）不受悬赏逻辑影响
+    #[test]
+    fn reward_goods_keeps_explicit_order_id() {
+        use super::apply_reward_goods_order_id;
+        let mut studio = studio();
+        studio.adorder_id = Some(42);
+        studio.adorder_type = Some(2);
+        apply_reward_goods_order_id(&mut studio);
+        assert_eq!(studio.adorder_id, Some(42), "显式订单 id 不被覆盖");
+        assert!(validate_publish_extras(&studio).is_ok());
+    }
+
+    /// 非带货类型不允许缺 id；越界 type 拒绝；悬赏带货禁止转载
+    #[test]
+    fn reward_goods_validation_rejects_invalid_combinations() {
+        // 商单（type=0）缺 id → 报配对错误
+        let error = {
+            let mut studio = studio();
+            studio.adorder_type = Some(0);
+            validate_publish_extras(&studio).unwrap_err()
+        };
+        assert!(error.contains("adorder_id"), "{error}");
+
+        // 越界 type=6 → 报范围错误
+        let error = {
+            let mut studio = studio();
+            studio.adorder_type = Some(6);
+            validate_publish_extras(&studio).unwrap_err()
+        };
+        assert!(error.contains("0-5"), "{error}");
+
+        // 悬赏带货 + 转载 → 互斥
+        let error = {
+            let mut studio = studio();
+            studio.adorder_type = Some(2);
+            studio.copyright = 2;
+            validate_publish_extras(&studio).unwrap_err()
+        };
+        assert!(error.contains("转载"), "{error}");
     }
 }

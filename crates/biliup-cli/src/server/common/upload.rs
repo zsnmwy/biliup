@@ -20,8 +20,8 @@ use biliup::client::StatelessClient;
 use biliup::credential::login_by_cookies;
 use biliup::error::Kind;
 use biliup::uploader::ad::{
-    apply_porder_adorder_type, parse_porder, parse_staffs, strip_web_only_extras,
-    validate_publish_extras,
+    apply_porder_adorder_type, apply_reward_goods_order_id, parse_porder, parse_staffs,
+    strip_web_only_extras, validate_publish_extras,
 };
 use biliup::uploader::chapter::parse_chapters;
 use biliup::uploader::line::{Line, Probe, StreamParcel, UploadObserver, UploadedStream};
@@ -696,6 +696,7 @@ pub async fn submit_to_bilibili(
     match submit_option {
         SubmitOption::Web => {
             apply_porder_adorder_type(studio);
+            apply_reward_goods_order_id(studio);
             // 网页端行为：投稿前先把个性化卡片逐张挂到第一个分P（plat=10、aid=0）；
             // 卡片接口失败会中断投稿，避免产出「以为挂了卡片」的稿件
             bilibili

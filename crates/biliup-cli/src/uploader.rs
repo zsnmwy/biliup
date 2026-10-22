@@ -3,7 +3,9 @@ use crate::server::errors::{AppError, AppResult};
 use crate::upload_lock::UploadLock;
 use biliup::client::StatelessClient;
 use biliup::error::Kind;
-use biliup::uploader::ad::{apply_porder_adorder_type, strip_web_only_extras};
+use biliup::uploader::ad::{
+    apply_porder_adorder_type, apply_reward_goods_order_id, strip_web_only_extras,
+};
 use biliup::uploader::bilibili::{BiliBili, Studio, Vid, Video};
 use biliup::uploader::credential::{Credential, LoginInfo, save_login_info};
 use biliup::uploader::line::Probe;
@@ -195,8 +197,10 @@ pub async fn upload_by_command(
     // 字段都只支持 web 投稿通道；其它通道告警并把 web-only 字段从请求体里去掉
     match submit {
         SubmitOption::Web => {
-            // 商业推广配置时 adorder_type 恒 9（entry.rs 已做过互斥校验）
+            // 商业推广配置时 adorder_type 恒 9；悬赏带货（type=2 无 id）补虚拟订单 id
+            // （entry.rs 已做过互斥校验）
             apply_porder_adorder_type(&mut studio);
+            apply_reward_goods_order_id(&mut studio);
             bili.attach_personal_cards(&mut studio)
                 .await
                 .change_context_lazy(|| AppError::Unknown)?;
