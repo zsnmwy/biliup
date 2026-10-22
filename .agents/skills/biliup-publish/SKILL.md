@@ -103,5 +103,6 @@ from 非降、视频须 ≥60 秒；正文走 `card/pre/chapter/submit`，add/v3
 ## 6. 深入资料
 
 - 互斥矩阵、错误码、卡片类型总表、稿件状态码：`references/business-rules.md`
+- 真号投稿实践（双比例封面 / 发布后补挂卡片 / 发布稿章节替换 / 删稿通路）：`references/publish-practice.md`
 - 协议级逆向依据（字段行号证据、payload 细节）：本仓库旁路分析包
   `zsnmwy-bilibili-videoup-analysis-87e4dd3/docs/`（不在 git 内，存在时才可读）

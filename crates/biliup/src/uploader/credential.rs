@@ -238,7 +238,9 @@ pub async fn login_by_cookies(file: impl AsRef<Path>, proxy: Option<&str>) -> Re
     let login_info: LoginInfo = serde_json::from_reader(std::io::BufReader::new(&file))?;
 
     let client: Credential = Credential::new(proxy);
-    let need_refresh = client.validate_tokens(&login_info).await?;
+    // cookie-only 凭据（网页导出，无 access_token）直接走 cookie 登录，跳过 token 校验
+    let need_refresh = !login_info.token_info.access_token.is_empty()
+        && client.validate_tokens(&login_info).await?;
 
     if need_refresh {
         let new_info = client.renew_tokens(login_info).await?;
