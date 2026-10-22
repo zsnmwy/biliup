@@ -79,5 +79,8 @@ B 站互斥码：转载 1 / 充电 2 / 首映 4 / 商单 8 / 联合投稿 16 / �
 - CLI `--user-cookie` 是全局参数，必须放在 `upload` 子命令**前面**。
 - 上传线路 `bldsa` 证书过期（`invalid peer certificate: Expired`）属已知现象，
   程序自动跳过该线路，不用处理。
-- 花火任务类（adorder_type 1/3/4/5）在协议未签署时会被服务端拦；带货-投稿后再添加
-  商品形态只需 adorder_id+adorder_type，无需 goodsInfos。
+- 花火任务类（adorder_type 1/3/4/5）在协议未签署时会被服务端拦；带货（type=2）分两种：
+  绑定已有订单用 `--adorder-id`+`--adorder-type 2`；「投稿后再添加商品」（悬赏带货）只传
+  `--adorder-type 2`，工具自动生成虚拟订单 id（网页端为 `Math.random()*1e17`）。
+  **adorder_type 必须与 adorder_id 成对出现**（悬赏带货由工具补 id）——裸发
+  `{"adorder_type":2}` 会被服务端静默丢弃，回读 `adorder_id=0`。

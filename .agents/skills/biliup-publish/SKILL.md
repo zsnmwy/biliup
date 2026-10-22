@@ -79,7 +79,8 @@ from 非降、视频须 ≥60 秒；正文走 `card/pre/chapter/submit`，add/v3
 `{"industry_id":21149,"official":0,"brand_name":"品牌","brand_source":2,"show_type":"11"}`
 行业与推广形式 id 从 `GET member.bilibili.com/x/vupre/web/archive/pre`（登录态）的
 `industry_list`/`showtype_list` 取。**花火带货**改用 `--adorder-id/--adorder-type`（0-5），
-与 porder 不能同传。
+与 porder 不能同传；「投稿后再添加商品」（悬赏带货）只传 `--adorder-type 2` 不带单号，
+工具自动生成本地虚拟订单 id（网页同款行为），商品发布后在悬赏带货后台绑定。
 
 **联合投稿 `--staffs`**：`[{"title":"出演","mid":<对方mid>}]`。搜索候选走
 `GET member.bilibili.com/x/web/staff/user/search?kw=<关键词>`。

@@ -55,12 +55,19 @@ GET https://api.bilibili.com/x/v2/dm/command/creative/list?aid=<aid>&oid=<cid>&p
 
 `/x/vu/web/delete`、`/x/vu/web/archive/del`、`/x/vu/web/archive/multidel` 均 404（2026-10 实测）。测试稿只能在创作中心手动删除——投稿演练建议一律 `--dtime` 定时或 `--is-only-self`（见 business-rules §5）。
 
-## 5. 待解：商业推广「视频带货」投稿声明
+## 5. 已解：商业推广「视频带货」投稿声明（悬赏带货）
 
-网页端「商业推广 → 视频带货 → 投稿后再添加商品」（悬赏带货）在 add/v3 里对应的字段未知：
+网页端「商业推广 → 视频带货 → 投稿后再添加商品」的协议已从 ad-video-sdk 逆向确认
+（`onChange` 构造虚拟花火订单 + 主页 `selectGoods` 存为 `huahuoPorder`）：
 
-- `--porder` 是「其他」页签（定制软广 industry/showtype）那条路，不是带货；
-- `--extra-fields '{"adorder_type":2}'`（无订单 id）投稿成功但无任何可见状态（archive/view 与公开接口均不回显），CLI 互斥校验也不允许单传 `adorder_type`；
-- 后挂花火订单的稿件（`adorder_id` 有值）是带货落地的最终形态，但订单在花火后台产生。
+- **add/v3 发送**：`adorder_id=<本地随机 17 位数字>` + `adorder_type=2`，不发
+  goodsInfo 与 service_provider_id；
+- **关键点**：`adorder_type` 必须与 `adorder_id` 成对出现——裸发 `{"adorder_type":2}`
+  会被服务端静默丢弃（archive/view 回读 `adorder_id=0, adorder_type=None`）；
+- 真实商品投稿后在【创作中心—收益管理—悬赏带货】绑定，绑定后稿件
+  `new_adorder_info` 变为真实订单信息。
 
-知道网页端这个勾选实际发送字段的欢迎补充。
+CLI 用法：`--adorder-type 2`（不带 `--adorder-id`），工具会按网页行为自动生成
+虚拟订单 id。真号实测：BV1wWnm6REKo 投稿成功，回读
+`adorder_id=99606182924773010`、`new_adorder_info.adorder_type=2`
+（label/no/title 均为「视频带货」，与网页协议逐字一致）。
